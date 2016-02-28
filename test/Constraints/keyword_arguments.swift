@@ -9,7 +9,6 @@ struct X1 {
   func f1(a: Int) {}
 }
 X1(a: 5).f1(b: 5) // expected-error{{extraneous argument label 'a:' in call}}{{4-7=}}
-// expected-error@-1{{extraneous argument label 'b:' in call}}{{13-16=}}
 
 // <rdar://problem/16801056>
 enum Policy {
@@ -35,7 +34,6 @@ struct X2 {
   func f2(b b: Int) { }
 }
 X2(5).f2(5) // expected-error{{missing argument label 'a:' in call}}{{4-4=a: }}
-// expected-error @-1{{missing argument label 'b:' in call}}{{10-10=b: }}
 
 
 // -------------------------------------------
@@ -51,7 +49,7 @@ allkeywords1(1, y: 2) // expected-error{{missing argument label 'x:' in call}} {
 
 // If keyword is reserved, make sure to quote it. rdar://problem/21392294
 func reservedLabel(x: Int, `repeat`: Bool) {}
-reservedLabel(1, true) // expected-error{{missing argument label 'repeat:' in call}}{{18-18=`repeat`: }}
+reservedLabel(1, true) // expected-error{{missing argument label 'repeat:' in call}}{{18-18=repeat: }}
 
 // Insert missing keyword before initial backtick. rdar://problem/21392294 part 2
 func reservedExpr(x: Int, y: Int) {}
@@ -273,7 +271,7 @@ struct Sub2 {
 
 var sub2 = Sub2()
 var d: Double = 0.0
-d = sub2[d] // expected-error{{missing argument label 'd:' in subscript}} {{10-10=d: }}
+d = sub2[d] // expected-error{{missing argument label 'd:' in subscript}} {{9-9=d: }}
 d = sub2[d: d]
 d = sub2[f: d] // expected-error{{incorrect argument label in subscript (have 'f:', expected 'd:')}} {{10-11=d}}
 
@@ -312,15 +310,16 @@ trailingclosure2(x: 5) { return 5 }
 
 func trailingclosure3(x x: Int, f: (() -> Int)!) {
   var f = f
-  _ = f
   f = nil
+  _ = f
 }
+
 trailingclosure3(x: 5) { return 5 }
 
 func trailingclosure4(f f: () -> Int) {}
 trailingclosure4 { 5 }
 
-func trailingClosure5<T>(file: String = __FILE__, line: UInt = __LINE__, expression: () -> T?) { }
+func trailingClosure5<T>(file: String = #file, line: UInt = #line, expression: () -> T?) { }
 func trailingClosure6<T>(value value: Int, expression: () -> T?) { }
 
 trailingClosure5(file: "hello", line: 17) { return Optional.Some(5) } // expected-error{{extraneous argument label 'file:' in call}}{{18-24=}}

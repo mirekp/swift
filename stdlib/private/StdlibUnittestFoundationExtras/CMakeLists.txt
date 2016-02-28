@@ -3,11 +3,11 @@ add_swift_library(swiftStdlibUnittestFoundationExtras SHARED IS_STDLIB
   # filename.
   StdlibUnittestFoundationExtras.swift
 
-  # Can not serialize StdlibUnittestFoundationExtras because of:
+  # Cannot serialize StdlibUnittestFoundationExtras because of:
   # <rdar://problem/18917405> Compiling StdlibUnittest with -sil-serialize-all
   # crashes in SIL serializer
   #
-  # SWIFT_COMPILE_FLAGS -Xfrontend -sil-serialize-all
+  # SWIFT_COMPILE_FLAGS ${STDLIB_SIL_SERIALIZE_ALL}
 
   SWIFT_MODULE_DEPENDS Foundation
   INSTALL_IN_COMPONENT stdlib-experimental)

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -28,7 +28,7 @@ namespace swift {
 
 void _swift_stdlib_free(void *ptr) { free(ptr); }
 
-int _swift_stdlib_putchar(int c) { return putchar(c); }
+int _swift_stdlib_putchar_unlocked(int c) { return putchar_unlocked(c); }
 
 __swift_size_t _swift_stdlib_strlen(const char *s) { return strlen(s); }
 
@@ -50,8 +50,13 @@ int _swift_stdlib_close(int fd) { return close(fd); }
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
 size_t _swift_stdlib_malloc_size(const void *ptr) { return malloc_size(ptr); }
-#elif defined(__GNU_LIBRARY__)
+#elif defined(__GNU_LIBRARY__) || defined(__CYGWIN__)
 #include <malloc.h>
+size_t _swift_stdlib_malloc_size(const void *ptr) {
+  return malloc_usable_size(const_cast<void *>(ptr));
+}
+#elif defined(__FreeBSD__)
+#include <malloc_np.h>
 size_t _swift_stdlib_malloc_size(const void *ptr) {
   return malloc_usable_size(const_cast<void *>(ptr));
 }

@@ -1,8 +1,8 @@
-//===- CodeCompletionCallbacks.h - Parser's interface to code completion --===//
+//===--- CodeCompletionCallbacks.h - Parser's interface to code completion ===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -36,6 +36,9 @@ protected:
   /// True if code completion is done inside a raw value expression of an enum
   /// case.
   bool InEnumElementRawValue = false;
+
+  /// True if code completion is done inside a #selector expression.
+  bool InObjCSelectorExpr = false;
 
   std::vector<Expr *> leadingSequenceExprs;
 
@@ -92,6 +95,24 @@ public:
     ~InEnumElementRawValueRAII() {
       if (Callbacks)
         Callbacks->InEnumElementRawValue = false;
+    }
+  };
+
+  /// RAII type that temporarily sets the "in Objective-C #selector expression"
+  /// flag on the code completion callbacks object.
+  class InObjCSelectorExprRAII {
+    CodeCompletionCallbacks *Callbacks;
+
+  public:
+    InObjCSelectorExprRAII(CodeCompletionCallbacks *Callbacks)
+        : Callbacks(Callbacks) {
+      if (Callbacks)
+        Callbacks->InObjCSelectorExpr = true;
+    }
+
+    ~InObjCSelectorExprRAII() {
+      if (Callbacks)
+        Callbacks->InObjCSelectorExpr = false;
     }
   };
 
@@ -155,7 +176,7 @@ public:
   virtual void completePoundAvailablePlatform() = 0;
 
   /// Complete the import decl with importable modules.
-  virtual void completeImportDecl(ArrayRef<std::pair<Identifier, SourceLoc>> Path) = 0;
+  virtual void completeImportDecl(std::vector<std::pair<Identifier, SourceLoc>> &Path) = 0;
 
   /// Complete unresolved members after dot.
   virtual void completeUnresolvedMember(UnresolvedMemberExpr *E,
@@ -169,6 +190,8 @@ public:
   virtual void completeReturnStmt(CodeCompletionExpr *E) = 0;
 
   virtual void completeAfterPound(CodeCompletionExpr *E, StmtKind ParentKind) = 0;
+
+  virtual void completeGenericParams(TypeLoc TL) = 0;
 
   /// \brief Signals that the AST for the all the delayed-parsed code was
   /// constructed.  No \c complete*() callbacks will be done after this.

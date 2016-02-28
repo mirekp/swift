@@ -76,7 +76,7 @@ func basictest() {
   var call3 : () = func3()()
 
   // Cannot call an integer.
-  bind_test2() // expected-error {{invalid use of '()' to call a value of non-function type 'Int'}} {{13-15=}}
+  bind_test2() // expected-error {{cannot call value of non-function type 'Int'}}
 }
 
 // Infix operators and attribute lists.
@@ -128,7 +128,7 @@ func errorRecovery() {
   var f: (Int,Int) = (1, 2, f : 3) // expected-error {{cannot convert value of type '(Int, Int, f: Int)' to specified type '(Int, Int)'}}
   
   // <rdar://problem/22426860> CrashTracer: [USER] swift at …mous_namespace::ConstraintGenerator::getTypeForPattern + 698
-  var (g1, g2, g3) = (1, 2) // expected-error {{different number of elements}}
+  var (g1, g2, g3) = (1, 2) // expected-error {{'(Int, Int)' is not convertible to '(_, _, _)', tuples have a different number of elements}}
 }
 
 func acceptsInt(x: Int) {}
@@ -141,7 +141,7 @@ var test1b = { 42 }
 var test1c = { { 42 } }
 var test1d = { { { 42 } } }
 
-func test2(a: Int)(b: Int) -> (c: Int) { // expected-error{{cannot create a single-element tuple with an element label}} {{32-35=}} expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
+func test2(a: Int, b: Int) -> (c: Int) { // expected-error{{cannot create a single-element tuple with an element label}} {{32-35=}}
  a+b
  a+b+c // expected-error{{use of unresolved identifier 'c'}}
  return a+b
@@ -405,13 +405,13 @@ var st_u11 = " \u{00110000} "  // expected-error {{invalid unicode scalar}}
 func stringliterals(d: [String: Int]) {
 
   // rdar://11385385
-  var x = 4
+  let x = 4
   "Hello \(x+1) world"
   
   "Error: \(x+1"; // expected-error {{unterminated string literal}}
   
   "Error: \(x+1   // expected-error {{unterminated string literal}}
-  ;
+  ;    // expected-error {{';' statements are not allowed}}
 
   // rdar://14050788 [DF] String Interpolations can't contain quotes
   "test \("nested")"
@@ -432,6 +432,7 @@ func stringliterals(d: [String: Int]) {
   // expected-error @-2 {{unterminated string literal}} expected-error @-1 {{unterminated string literal}}
 
   // FIXME: bad diagnostics.
+  // expected-warning @+1 {{initialization of variable 'x2' was never used; consider replacing with assignment to '_' or removing it}}
   /* expected-error {{unterminated string literal}} expected-error {{expected ',' separator}} expected-error {{expected ',' separator}} expected-note {{to match this opening '('}}  */ var x2 : () = ("hello" + "
   ; // expected-error {{expected expression in list of expressions}}
 } // expected-error {{expected ')' in expression list}}
@@ -448,13 +449,11 @@ func testSingleQuoteStringLiterals() {
   'abc" // expected-error{{unterminated string literal}}
   "a'c"
 
-  // FIXME: <rdar://problem/22709931> QoI: Single-quote => double-quote string literal fixit should escape quote chars
-  // FIXME: The suggested replacement should un-escape the single quote
-  // character.
-  'ab\'c' // expected-error{{single-quoted string literal found, use '"'}}{{3-10="ab\\'c"}}
+  'ab\'c' // expected-error{{single-quoted string literal found, use '"'}}{{3-10="ab'c"}}
 
-  // FIXME: The suggested replacement should escape the double-quote character.
-  'ab"c' // expected-error{{single-quoted string literal found, use '"'}}{{3-9="ab"c"}}
+  'ab"c' // expected-error{{single-quoted string literal found, use '"'}}{{3-9="ab\\"c"}}
+  'ab\"c' // expected-error{{single-quoted string literal found, use '"'}}{{3-10="ab\\"c"}}
+  'ab\\"c' // expected-error{{single-quoted string literal found, use '"'}}{{3-11="ab\\\\\\"c"}}
 }
 
 // <rdar://problem/17128913>
@@ -466,9 +465,9 @@ s.appendContentsOf(["x"])
 //===----------------------------------------------------------------------===//
 
 func takesInt(x: Int) {}
-func takesExplicitInt(inout x: Int) { }
+func takesExplicitInt(x: inout Int) { }
 
-func testInOut(inout arg: Int) {
+func testInOut(arg: inout Int) {
   var x: Int
   takesExplicitInt(x) // expected-error{{passing value of type 'Int' to an inout parameter requires explicit '&'}} {{20-20=&}}
   takesExplicitInt(&x)
@@ -502,7 +501,7 @@ extension Empty {
   init(_ f: Float) { }
 }
 
-func conversionTest(inout a: Double, inout b: Int) {
+func conversionTest(a: inout Double, b: inout Int) {
   var f: Float
   var d: Double
   a = Double(b)
@@ -534,7 +533,7 @@ struct Rule {
 }
 
 var ruleVar: Rule
-ruleVar = Rule("a") // expected-error {{cannot convert value of type 'String' to expected argument type '(target: String, dependencies: String)'}}
+ruleVar = Rule("a") // expected-error {{missing argument for parameter 'dependencies' in call}}
 
 
 class C {
@@ -544,25 +543,26 @@ class C {
   func method() {}
 }
 
-var c = C(3) // expected-error {{cannot convert value of type 'Int' to expected argument type 'C?'}}
+_ = C(3) // expected-error {{missing argument label 'other:' in call}}
+_ = C(other: 3) // expected-error {{cannot convert value of type 'Int' to expected argument type 'C?'}}
 
 //===----------------------------------------------------------------------===//
 // Unary Operators
 //===----------------------------------------------------------------------===//
 
-func unaryOps(inout i8: Int8, inout i64: Int64) {
+func unaryOps(i8: inout Int8, i64: inout Int64) {
   i8 = ~i8
-  ++i64
-  --i8
+  i64 += 1
+  i8 -= 1
 
-  ++Int64(5) // expected-error{{cannot pass immutable value to mutating operator: function call returns immutable value}}
+  Int64(5) += 1 // expected-error{{left side of mutating operator isn't mutable: function call returns immutable value}}
   
   // <rdar://problem/17691565> attempt to modify a 'let' variable with ++ results in typecheck error not being able to apply ++ to Float
   let a = i8 // expected-note {{change 'let' to 'var' to make it mutable}} {{3-6=var}}
-  ++a // expected-error {{cannot pass immutable value to mutating operator: 'a' is a 'let' constant}}
+  a += 1 // expected-error {{left side of mutating operator isn't mutable: 'a' is a 'let' constant}}
   
   var b : Int { get { }}
-  ++b  // expected-error {{cannot pass immutable value to mutating operator: 'b' is a get-only property}}
+  b += 1  // expected-error {{left side of mutating operator isn't mutable: 'b' is a get-only property}}
 }
 
 //===----------------------------------------------------------------------===//
@@ -583,9 +583,14 @@ func iterators() {
 //===----------------------------------------------------------------------===//
 
 func magic_literals() {
-  _ = __FILE__
-  _ = __LINE__ + __COLUMN__
-  var _: UInt8 = __LINE__ + __COLUMN__
+  _ = __FILE__  // expected-warning {{__FILE__ is deprecated and will be removed in Swift 3, please use #file}}
+  _ = __LINE__  // expected-warning {{__LINE__ is deprecated and will be removed in Swift 3, please use #line}}
+  _ = __COLUMN__  // expected-warning {{__COLUMN__ is deprecated and will be removed in Swift 3, please use #column}}
+  _ = __DSO_HANDLE__  // expected-warning {{__DSO_HANDLE__ is deprecated and will be removed in Swift 3, please use #dsohandle}}
+
+  _ = #file
+  _ = #line + #column
+  var _: UInt8 = #line + #column
 }
 
 //===----------------------------------------------------------------------===//
@@ -594,11 +599,11 @@ func magic_literals() {
 
 
 infix operator +-+= {}
-func +-+= (inout x: Int, y: Int) -> Int { return 0}
+func +-+= (x: inout Int, y: Int) -> Int { return 0}
 
 func lvalue_processing() {
   var i = 0
-  ++i   // obviously ok
+  i += 1   // obviously ok
 
   var fn = (+-+=)
 
@@ -646,13 +651,13 @@ func unusedExpressionResults() {
 func arrayLiterals() { 
   var a = [1,2,3]
   var b : [Int] = []
-  var c = []  // expected-error {{expression type '[_]' is ambiguous without more context}}
+  var c = []  // expected-error {{cannot infer type for empty collection literal without a contextual type}}
 }
 
 func dictionaryLiterals() {
   var a = [1 : "foo",2 : "bar",3 : "baz"]
   var b : Dictionary<Int, String> = [:]
-  var c = [:]  // expected-error {{expression type '[_ : _]' is ambiguous without more context}}
+  var c = [:]  // expected-error {{cannot infer type for empty collection literal without a contextual type}}
 }
 
 func invalidDictionaryLiteral() {
@@ -667,6 +672,8 @@ func invalidDictionaryLiteral() {
   var g = [1: "one", 2: ;] // expected-error {{expected value in dictionary literal}} expected-error 2{{expected ',' separator}} {{24-24=,}} {{24-24=,}} expected-error {{expected key expression in dictionary literal}}
 }
 
+    
+// FIXME: The issue here is a type compatibility problem, there is no ambiguity.
 [4].joinWithSeparator([1]) // expected-error {{type of expression is ambiguous without more context}}
 [4].joinWithSeparator([[[1]]]) // expected-error {{type of expression is ambiguous without more context}}
 
@@ -684,10 +691,10 @@ nil != Int.self // expected-error {{binary operator '!=' cannot be applied to op
 // <rdar://problem/19032294> Disallow postfix ? when not chaining
 func testOptionalChaining(a : Int?, b : Int!, c : Int??) {
   a?    // expected-error {{optional chain has no effect, expression already produces 'Int?'}} {{4-5=}}
-  a?._getMirror()
+  a?.customMirror()
 
   b?   // expected-error {{'?' must be followed by a call, member lookup, or subscript}}
-  b?._getMirror()
+  b?.customMirror()
 
   var _: Int? = c?   // expected-error {{'?' must be followed by a call, member lookup, or subscript}}
 }
@@ -739,7 +746,7 @@ public struct TestPropMethodOverloadGroup {
 
 
 // <rdar://problem/18496742> Passing ternary operator expression as inout crashes Swift compiler
-func inoutTests(inout arr: Int) {
+func inoutTests(arr: inout Int) {
   var x = 1, y = 2
   (true ? &x : &y)  // expected-error 2 {{'&' can only appear immediately in a call argument list}}
   let a = (true ? &x : &y)  // expected-error 2 {{'&' can only appear immediately in a call argument list}}
@@ -768,7 +775,7 @@ func inoutTests(inout arr: Int) {
 
 // <rdar://problem/20802757> Compiler crash in default argument & inout expr
 var g20802757 = 2
-func r20802757(inout z: Int = &g20802757) { // expected-error {{'&' can only appear immediately in a call argument list}}
+func r20802757(z: inout Int = &g20802757) { // expected-error {{'&' can only appear immediately in a call argument list}}
   print(z)
 }
 
@@ -779,11 +786,11 @@ func r22211854() {
     func f(x: Int, _ y: Int, _ z: String = "") {}
     func g<T>(x: T, _ y: T, _ z: String = "") {}
 
-    f(1) // expected-error{{cannot invoke 'f' with an argument list of type '(Int)'}} expected-note{{expected an argument list of type '(Int, Int, String)'}}
-    g(1) // expected-error{{cannot invoke 'g' with an argument list of type '(Int)'}} expected-note{{expected an argument list of type '(T, T, String)'}}
+    f(1) // expected-error{{missing argument for parameter #2 in call}}
+    g(1) // expected-error{{missing argument for parameter #2 in call}}
     func h() -> Int { return 1 }
-    f(h() == 1) // expected-error{{cannot invoke 'f' with an argument list of type '(Bool)'}} expected-note{{expected an argument list of type '(Int, Int, String)'}}
-    g(h() == 1) // expected-error{{cannot invoke 'g' with an argument list of type '(Bool)'}} expected-note{{expected an argument list of type '(T, T, String)'}}
+    f(h() == 1) // expected-error{{missing argument for parameter #2 in call}}
+    g(h() == 1) // expected-error{{missing argument for parameter #2 in call}}
 }
 
 // <rdar://problem/22348394> Compiler crash on invoking function with labeled defaulted param with non-labeled argument
@@ -797,3 +804,43 @@ protocol P { var y: String? { get } }
 func r23185177(x: P?) -> [String] {
   return x?.y // expected-error{{cannot convert return expression of type 'String?' to return type '[String]'}}
 }
+
+// <rdar://problem/22913570> Miscompile: wrong argument parsing when calling a function in swift2.0
+func r22913570() {
+  func f(from: Int = 0, to: Int) {}
+  f(1 + 1) // expected-error{{missing argument for parameter 'to' in call}}
+}
+
+
+// <rdar://problem/23708702> Emit deprecation warnings for ++/-- in Swift 2.2
+func swift22_deprecation_increment_decrement() {
+  var i = 0
+  var f = 1.0
+  var si = "foo".startIndex
+
+  i++     // expected-warning {{'++' is deprecated: it will be removed in Swift 3}} {{4-6= += 1}}
+  --i     // expected-warning {{'--' is deprecated: it will be removed in Swift 3}} {{3-5=}} {{6-6= -= 1}}
+  _ = i++ // expected-warning {{'++' is deprecated: it will be removed in Swift 3}}
+
+  ++f     // expected-warning {{'++' is deprecated: it will be removed in Swift 3}} {{3-5=}} {{6-6= += 1}}
+  f--     // expected-warning {{'--' is deprecated: it will be removed in Swift 3}} {{4-6= -= 1}}
+  _ = f-- // expected-warning {{'--' is deprecated: it will be removed in Swift 3}}
+
+
+  ++si      // expected-warning {{'++' is deprecated: it will be removed in Swift 3}} {{3-5=}} {{7-7= = si.successor()}}
+  --si      // expected-warning {{'--' is deprecated: it will be removed in Swift 3}} {{3-5=}} {{7-7= = si.predecessor()}}
+  si++      // expected-warning {{'++' is deprecated: it will be removed in Swift 3}} {{5-7= = si.successor()}}
+  si--      // expected-warning {{'--' is deprecated: it will be removed in Swift 3}} {{5-7= = si.predecessor()}}
+  _ = --si  // expected-warning {{'--' is deprecated: it will be removed in Swift 3}}
+}
+
+// SR-628 mixing lvalues and rvalues in tuple expression
+var x = 0
+var y = 1
+let _ = (x, x.successor()).0
+let _ = (x, 3).1
+(x,y) = (2,3)
+(x,4) = (1,2) // expected-error {{cannot assign to value: function call returns immutable value}}
+(x,y).1 = 7 // expected-error {{cannot assign to immutable expression of type 'Int'}}
+x = (x,(3,y)).1.1
+

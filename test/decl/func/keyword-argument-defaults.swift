@@ -67,8 +67,8 @@ struct Subscripts2 {
 }
 
 
-func f4(a: Int)(_ b: Int) { } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-func f5(a: Int)(b: Int) { } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
+func f4(a: Int) -> (Int) -> () { return { b in () } }
+func f5(a: Int) -> (b: Int) -> () { return { b in () } }
 
 func testFunctions(i: Int, x: X) {
   f4(i)(i)
@@ -78,11 +78,11 @@ func testFunctions(i: Int, x: X) {
 }
 
 struct Y {
-  func m0(a: Int)(_ b: Int) { } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-  func m1(a: Int)(b: Int) { } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
+  func m0(a: Int) -> (Int) -> () { return { b in () } }
+  func m1(a: Int) -> (b: Int) -> () { return { b in () } }
 
-  func m2(a: Int)(_ b: Int, _ c: Int) { } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-  func m3(a: Int)(b: Int, c2 c: Int) { } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
+  func m2(a: Int) -> (Int, Int) -> () { return { b, c in () } }
+  func m3(a: Int) -> (b: Int, c2: Int) -> () { return { b, c in () } }
 
   subscript (x: Int) -> Int {
     get { return x }
@@ -106,17 +106,16 @@ func testMethods(i: Int, x: Y) {
 
 func testSubscripts(i: Int, s: String, x: Y) {
   var i2 = x[i]
-  var i3 = x[x: i] // expected-error{{extraneous argument label 'x:' in subscript}} {{14-17=}}
+  var i3 = x[x: i] // expected-error{{cannot subscript a value of type 'Y' with an index of type '(x: Int)'}}
+  // expected-note @-1 {{overloads for 'subscript' exist with these partially matching parameter lists: (Int), (y: String)}}
   var s2 = x[y: s]
-  var s3 = x[s]  // expected-error{{missing argument label 'y:' in subscript}} {{14-14=y: }}
+  var s3 = x[s]  // expected-error{{cannot convert value of type 'String' to expected argument type 'Int'}}
 }
 
 // Operators
 func +(_ a: String,  // expected-warning{{extraneous '_' in parameter: 'a' has no keyword argument name}}{{8-10=}}
        b b: Double) { } // expected-error{{operator cannot have keyword arguments}} {{8-10=}}
 
-func +(a: Double, b: String)(_ c: Int)(d e: Int) { } // okay; expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-
-// # is being removed
-func pound(#a: Int, // expected-error{{'#' has been removed from Swift; double up 'a a' to make the argument label the same as the parameter name}}{{12-13=a }}
-           #b: Int) { } // expected-error{{'#' has been removed from Swift; 'b' already has an argument label}}{{12-13=}}
+func +(a: Double, b: String) -> (Int) -> (d: Int) -> () {
+  return { c in { e in () } }
+}

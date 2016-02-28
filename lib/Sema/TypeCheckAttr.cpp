@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -70,6 +70,7 @@ public:
   IGNORED_ATTR(RequiresStoredPropertyInits)
   IGNORED_ATTR(Rethrows)
   IGNORED_ATTR(Semantics)
+  IGNORED_ATTR(Swift3Migration)
   IGNORED_ATTR(SwiftNativeObjCRuntimeBase)
   IGNORED_ATTR(SynthesizedProtocol)
   IGNORED_ATTR(Testable)
@@ -95,7 +96,7 @@ public:
   void visitTransparentAttr(TransparentAttr *attr);
   void visitMutationAttr(DeclAttribute *attr);
   void visitMutatingAttr(MutatingAttr *attr) { visitMutationAttr(attr); }
-  void visitNonMutatingAttr(NonMutatingAttr *attr)  { visitMutationAttr(attr); }
+  void visitNonMutatingAttr(NonMutatingAttr *attr) { visitMutationAttr(attr); }
   void visitDynamicAttr(DynamicAttr *attr);
 
   void visitOwnershipAttr(OwnershipAttr *attr) {
@@ -105,7 +106,7 @@ public:
   void visitFinalAttr(FinalAttr *attr) {
     // Accept and remove the 'final' attribute from members of protocol
     // extensions.
-    if (D->getDeclContext()->isProtocolExtensionContext()) {
+    if (D->getDeclContext()->getAsProtocolExtensionContext()) {
       D->getAttrs().removeAttribute(attr);
     }
   }
@@ -214,7 +215,7 @@ void AttributeEarlyChecker::visitDynamicAttr(DynamicAttr *attr) {
 void AttributeEarlyChecker::visitIBActionAttr(IBActionAttr *attr) {
   // Only instance methods returning () can be IBActions.
   const FuncDecl *FD = cast<FuncDecl>(D);
-  if (!FD->getDeclContext()->isClassOrClassExtensionContext() ||
+  if (!FD->getDeclContext()->getAsClassOrClassExtensionContext() ||
       FD->isStatic() || FD->isAccessor())
     return diagnoseAndRemoveAttr(attr, diag::invalid_ibaction_decl);
 
@@ -231,14 +232,14 @@ void AttributeEarlyChecker::visitIBDesignableAttr(IBDesignableAttr *attr) {
 void AttributeEarlyChecker::visitIBInspectableAttr(IBInspectableAttr *attr) {
   // Only instance properties can be 'IBInspectable'.
   auto *VD = cast<VarDecl>(D);
-  if (!VD->getDeclContext()->isClassOrClassExtensionContext() ||
+  if (!VD->getDeclContext()->getAsClassOrClassExtensionContext() ||
       VD->isStatic())
     return diagnoseAndRemoveAttr(attr, diag::invalid_ibinspectable);
 }
 
 void AttributeEarlyChecker::visitSILStoredAttr(SILStoredAttr *attr) {
   auto *VD = cast<VarDecl>(D);
-  if (VD->getDeclContext()->isClassOrClassExtensionContext())
+  if (VD->getDeclContext()->getAsClassOrClassExtensionContext())
     return;
   auto ctx = VD->getDeclContext()->getDeclaredTypeInContext();
   if (ctx && ctx->getStructOrBoundGenericStruct())
@@ -291,7 +292,7 @@ isAcceptableOutletType(Type type, bool &isArray, TypeChecker &TC) {
 void AttributeEarlyChecker::visitIBOutletAttr(IBOutletAttr *attr) {
   // Only instance properties can be 'IBOutlet'.
   auto *VD = cast<VarDecl>(D);
-  if (!VD->getDeclContext()->isClassOrClassExtensionContext() ||
+  if (!VD->getDeclContext()->getAsClassOrClassExtensionContext() ||
       VD->isStatic())
     return diagnoseAndRemoveAttr(attr, diag::invalid_iboutlet);
 
@@ -336,7 +337,7 @@ void AttributeEarlyChecker::visitIBOutletAttr(IBOutletAttr *attr) {
 void AttributeEarlyChecker::visitNSManagedAttr(NSManagedAttr *attr) {
   // @NSManaged only applies to instance methods and properties within a class.
   if (cast<ValueDecl>(D)->isStatic() ||
-      !D->getDeclContext()->isClassOrClassExtensionContext()) {
+      !D->getDeclContext()->getAsClassOrClassExtensionContext()) {
     return diagnoseAndRemoveAttr(attr,
                                  diag::attr_NSManaged_not_instance_member);
   }
@@ -426,7 +427,7 @@ void AttributeEarlyChecker::visitLazyAttr(LazyAttr *attr) {
   if (!VD->hasStorage())
     return diagnoseAndRemoveAttr(attr, diag::lazy_not_on_computed);
 
-  // lazy is not allowed on a lazily initiailized global variable or on a
+  // lazy is not allowed on a lazily initialized global variable or on a
   // static property (which is already lazily initialized).
   if (VD->isStatic() ||
       (varDC->isModuleScopeContext() &&
@@ -643,6 +644,7 @@ public:
     IGNORED_ATTR(SynthesizedProtocol)
     IGNORED_ATTR(RequiresStoredPropertyInits)
     IGNORED_ATTR(SILStored)
+    IGNORED_ATTR(Swift3Migration)
     IGNORED_ATTR(Testable)
     IGNORED_ATTR(WarnUnqualifiedAccess)
 #undef IGNORED_ATTR
@@ -683,8 +685,8 @@ public:
 
 
 static bool checkObjectOrOptionalObjectType(TypeChecker &TC, Decl *D,
-                                            const Pattern *argPattern) {
-  Type ty = argPattern->getType();
+                                            ParamDecl *param) {
+  Type ty = param->getType();
   if (auto unwrapped = ty->getAnyOptionalObjectType())
     ty = unwrapped;
 
@@ -692,8 +694,8 @@ static bool checkObjectOrOptionalObjectType(TypeChecker &TC, Decl *D,
     // @objc class types are okay.
     if (!classDecl->isObjC()) {
       TC.diagnose(D, diag::ibaction_nonobjc_class_argument,
-                  argPattern->getType())
-        .highlight(argPattern->getSourceRange());
+                  param->getType())
+        .highlight(param->getSourceRange());
       return true;
     }
   } else if (ty->isObjCExistentialType()) {
@@ -702,8 +704,8 @@ static bool checkObjectOrOptionalObjectType(TypeChecker &TC, Decl *D,
   } else {
     // No other types are permitted.
     TC.diagnose(D, diag::ibaction_nonobject_argument,
-                argPattern->getSemanticsProvidingPattern()->getType())
-      .highlight(argPattern->getSourceRange());
+                param->getType())
+      .highlight(param->getSourceRange());
     return true;
   }
 
@@ -733,64 +735,50 @@ void AttributeChecker::visitIBActionAttr(IBActionAttr *attr) {
     return;
   }
 
-  auto Arguments = FD->getBodyParamPatterns()[1];
-  auto ArgTuple = dyn_cast<TuplePattern>(Arguments);
-
-  auto checkSingleArgument = [this](const Pattern *argPattern) -> bool {
+  auto paramList = FD->getParameterList(1);
+  bool relaxedIBActionUsedOnOSX = false;
+  bool Valid = true;
+  switch (paramList->size()) {
+  case 0:
+    // (iOS only) No arguments.
+    if (!isRelaxedIBAction(TC)) {
+      relaxedIBActionUsedOnOSX = true;
+      break;
+    }
+    break;
+  case 1:
     // One argument. May be a scalar on iOS/watchOS (because of WatchKit).
     if (isRelaxedIBAction(TC)) {
       // Do a rough check to allow any ObjC-representable struct or enum type
       // on iOS.
-      Type ty = argPattern->getType();
+      Type ty = paramList->get(0)->getType();
       if (auto nominal = ty->getAnyNominal())
         if (isa<StructDecl>(nominal) || isa<EnumDecl>(nominal))
           if (nominal->classifyAsOptionalType() == OTK_None)
             if (TC.isTriviallyRepresentableInObjC(cast<FuncDecl>(D), ty))
-              return false;
+              break;  // Looks ok.
     }
-    return checkObjectOrOptionalObjectType(TC, D, argPattern);
-  };
-
-  bool relaxedIBActionUsedOnOSX = false;
-  bool Valid = true;
-  if (ArgTuple) {
-    auto fields = ArgTuple->getElements();
-    switch (ArgTuple->getNumElements()) {
-    case 0:
-      // (iOS only) No arguments.
-      if (!isRelaxedIBAction(TC)) {
-        relaxedIBActionUsedOnOSX = true;
-        break;
-      }
-      break;
-    case 1:
-      // One argument, see above.
-      if (checkSingleArgument(fields[0].getPattern()))
-        Valid = false;
-      break;
-    case 2:
-      // (iOS/watchOS only) Two arguments, the second of which is a UIEvent.
-      // We don't currently enforce the UIEvent part.
-      if (!isRelaxedIBAction(TC)) {
-        relaxedIBActionUsedOnOSX = true;
-        break;
-      }
-      if (checkObjectOrOptionalObjectType(TC, D, fields[0].getPattern()))
-        Valid = false;
-      if (checkObjectOrOptionalObjectType(TC, D, fields[1].getPattern()))
-        Valid = false;
-      break;
-    default:
-      // No platform allows an action signature with more than two arguments.
-      TC.diagnose(D, diag::invalid_ibaction_argument_count,
-                  isRelaxedIBAction(TC));
+    if (checkObjectOrOptionalObjectType(TC, D, paramList->get(0)))
       Valid = false;
+    break;
+  case 2:
+    // (iOS/watchOS only) Two arguments, the second of which is a UIEvent.
+    // We don't currently enforce the UIEvent part.
+    if (!isRelaxedIBAction(TC)) {
+      relaxedIBActionUsedOnOSX = true;
       break;
     }
-  } else {
-    // One argument without a name.
-    if (checkSingleArgument(Arguments))
+    if (checkObjectOrOptionalObjectType(TC, D, paramList->get(0)))
       Valid = false;
+    if (checkObjectOrOptionalObjectType(TC, D, paramList->get(1)))
+      Valid = false;
+    break;
+  default:
+    // No platform allows an action signature with more than two arguments.
+    TC.diagnose(D, diag::invalid_ibaction_argument_count,
+                isRelaxedIBAction(TC));
+    Valid = false;
+    break;
   }
 
   if (relaxedIBActionUsedOnOSX) {
@@ -835,7 +823,7 @@ void AttributeChecker::visitAvailableAttr(AvailableAttr *attr) {
   // range annotation and ensure that this attribute's available version range
   // is fully contained within that declaration's range. If there is no such
   // enclosing declaration, then there is nothing to check.
-  Optional<VersionRange> EnclosingAnnotatedRange;
+  Optional<AvailabilityContext> EnclosingAnnotatedRange;
   Decl *EnclosingDecl = getEnclosingDeclForDecl(D);
 
   while (EnclosingDecl) {
@@ -852,7 +840,8 @@ void AttributeChecker::visitAvailableAttr(AvailableAttr *attr) {
   if (!EnclosingDecl)
     return;
 
-  VersionRange AttrRange = VersionRange::allGTE(attr->Introduced.getValue());
+  AvailabilityContext AttrRange{
+      VersionRange::allGTE(attr->Introduced.getValue())};
 
   if (!AttrRange.isContainedIn(EnclosingAnnotatedRange.getValue())) {
     TC.diagnose(attr->getLocation(),
@@ -907,8 +896,8 @@ void AttributeChecker::visitFinalAttr(FinalAttr *attr) {
   // 'final' only makes sense in the context of a class
   // declaration or a protocol extension.  Reject it on global functions,
   // structs, enums, etc.
-  if (!D->getDeclContext()->isClassOrClassExtensionContext() &&
-      !D->getDeclContext()->isProtocolExtensionContext()) {
+  if (!D->getDeclContext()->getAsClassOrClassExtensionContext() &&
+      !D->getDeclContext()->getAsProtocolExtensionContext()) {
     TC.diagnose(attr->getLocation(), diag::member_cannot_be_final);
     return;
   }
@@ -1229,9 +1218,10 @@ void AttributeChecker::visitRethrowsAttr(RethrowsAttr *attr) {
   // 'rethrows' only applies to functions that take throwing functions
   // as parameters.
   auto fn = cast<AbstractFunctionDecl>(D);
-  for (auto param : fn->getBodyParamPatterns()) {
-    if (hasThrowingFunctionParameter(param->getType()->getCanonicalType()))
-      return;
+  for (auto paramList : fn->getParameterLists()) {
+    for (auto param : *paramList)
+      if (hasThrowingFunctionParameter(param->getType()->getCanonicalType()))
+        return;
   }
 
   TC.diagnose(attr->getLocation(), diag::rethrows_without_throwing_parameter);
@@ -1241,7 +1231,7 @@ void AttributeChecker::visitRethrowsAttr(RethrowsAttr *attr) {
 bool AttributeChecker::visitAbstractAccessibilityAttr(
     AbstractAccessibilityAttr *attr) {
   DeclContext *dc = D->getDeclContext();
-  if (auto nominal = dc->isNominalTypeOrNominalTypeExtensionContext()) {
+  if (auto nominal = dc->getAsNominalTypeOrNominalTypeExtensionContext()) {
     Accessibility typeAccess = nominal->getFormalAccess();
     if (attr->getAccess() > typeAccess) {
       auto diag = TC.diagnose(attr->getLocation(),

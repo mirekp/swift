@@ -1,8 +1,8 @@
-//===--- Map.swift - Lazily map over a SequenceType -----------*- swift -*-===//
+//===--- Map.swift - Lazily map over a SequenceType -----------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -26,17 +26,13 @@ public struct LazyMapGenerator<
   ///   since the copy was made, and no preceding call to `self.next()`
   ///   has returned `nil`.
   public mutating func next() -> Element? {
-    let x = _base.next()
-    if x != nil {
-      return _transform(x!)
-    }
-    return nil
+    return _base.next().map(_transform)
   }
 
   public var base: Base { return _base }
   
   internal var _base: Base
-  internal var _transform: (Base.Element)->Element
+  internal let _transform: (Base.Element) -> Element
 }
 
 /// A `SequenceType` whose elements consist of those in a `Base`
@@ -48,14 +44,14 @@ public struct LazyMapSequence<Base : SequenceType, Element>
   
   public typealias Elements = LazyMapSequence
   
-  /// Return a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> LazyMapGenerator<Base.Generator, Element> {
     return LazyMapGenerator(_base: _base.generate(), _transform: _transform)
   }
 
-  /// Return a value less than or equal to the number of elements in
+  /// Returns a value less than or equal to the number of elements in
   /// `self`, **nondestructively**.
   ///
   /// - Complexity: O(N).
@@ -65,13 +61,13 @@ public struct LazyMapSequence<Base : SequenceType, Element>
 
   /// Create an instance with elements `transform(x)` for each element
   /// `x` of base.
-  public init(_ base: Base, transform: (Base.Generator.Element)->Element) {
+  public init(_ base: Base, transform: (Base.Generator.Element) -> Element) {
     self._base = base
     self._transform = transform
   }
   
   public var _base: Base
-  internal var _transform: (Base.Generator.Element)->Element
+  internal let _transform: (Base.Generator.Element) -> Element
 
   @available(*, unavailable, renamed="Element")
   public typealias T = Element
@@ -106,7 +102,7 @@ public struct LazyMapCollection<Base : CollectionType, Element>
   public var first: Element? { return _base.first.map(_transform) }
   
 
-  /// Returns a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> LazyMapGenerator<Base.Generator, Element> {
@@ -127,22 +123,22 @@ public struct LazyMapCollection<Base : CollectionType, Element>
 
   /// Create an instance with elements `transform(x)` for each element
   /// `x` of base.
-  public init(_ base: Base, transform: (Base.Generator.Element)->Element) {
+  public init(_ base: Base, transform: (Base.Generator.Element) -> Element) {
     self._base = base
     self._transform = transform
   }
   
   public var _base: Base
-  var _transform: (Base.Generator.Element)->Element
+  let _transform: (Base.Generator.Element) -> Element
 
   @available(*, unavailable, renamed="Element")
   public typealias T = Element
 }
 
-//===--- Support for s.lazy ----------------------------------------------===//
+//===--- Support for s.lazy -----------------------------------------------===//
 
 extension LazySequenceType {
-  /// Return a `LazyMapSequence` over this `Sequence`.  The elements of
+  /// Returns a `LazyMapSequence` over this `Sequence`.  The elements of
   /// the result are computed lazily, each time they are read, by
   /// calling `transform` function on a base element.
   @warn_unused_result
@@ -154,7 +150,7 @@ extension LazySequenceType {
 }
 
 extension LazyCollectionType {
-  /// Return a `LazyMapCollection` over this `Collection`.  The elements of
+  /// Returns a `LazyMapCollection` over this `Collection`.  The elements of
   /// the result are computed lazily, each time they are read, by
   /// calling `transform` function on a base element.
   @warn_unused_result
@@ -165,7 +161,7 @@ extension LazyCollectionType {
   }
 }
 
-/// Return an `Array` containing the results of mapping `transform`
+/// Returns an `Array` containing the results of mapping `transform`
 /// over `source`.
 @available(*, unavailable, message="call the 'map()' method on the sequence")
 public func map<C : CollectionType, T>(
@@ -174,7 +170,7 @@ public func map<C : CollectionType, T>(
   fatalError("unavailable function can't be called")
 }
 
-/// Return an `Array` containing the results of mapping `transform`
+/// Returns an `Array` containing the results of mapping `transform`
 /// over `source` and flattening the result.
 @available(*, unavailable, message="call the 'flatMap()' method on the sequence")
 public func flatMap<C : CollectionType, T>(

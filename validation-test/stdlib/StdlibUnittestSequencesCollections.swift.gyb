@@ -7,6 +7,15 @@
 
 import SwiftPrivate
 import StdlibUnittest
+import StdlibCollectionUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+#if _runtime(_ObjC)
+import ObjectiveC
+import Foundation
+#endif
 
 %for traversal in [ 'Forward', 'Bidirectional', 'RandomAccess' ]:
 // This comment is a workaround for <rdar://problem/18900352> gyb miscompiles nested loops
@@ -71,14 +80,14 @@ ${Self}TestSuite.test("subscript(_:Index)/InterchangeableCollections") {
   expectEqual(1010, c2[i1].value)
   expectEqual(4040, c1[i2].value)
 
-  ++i1
-  ++i2
+  i1 = i1.advancedBy(1)
+  i2 = i2.advancedBy(1)
   expectEqual(i1, i2)
   expectEqual(2020, c2[i1].value)
   expectEqual(2020, c1[i2].value)
 
-  ++i1
-  ++i2
+  i1 = i1.advancedBy(1)
+  i2 = i2.advancedBy(1)
   expectEqual(i1, i2)
   expectEqual(3030, c2[i1].value)
   expectEqual(3030, c1[i2].value)
@@ -284,7 +293,7 @@ ${Self}TestSuite.test("removeAll()/IndexInvalidation") {
 var SequenceTypeAlgorithms = TestSuite("SequenceTypeAlgorithms")
 
 SequenceTypeAlgorithms.test("forAllPermutations") {
-  if true {
+  do {
     var permutations: [[Int]] = []
     forAllPermutations(0) {
       permutations.append($0)
@@ -292,7 +301,7 @@ SequenceTypeAlgorithms.test("forAllPermutations") {
     expectEqualSequence([] as [[Int]], permutations) { $0 == $1 }
   }
 
-  if true {
+  do {
     var permutations: [[Int]] = []
     forAllPermutations(1) {
       permutations.append($0)
@@ -300,7 +309,7 @@ SequenceTypeAlgorithms.test("forAllPermutations") {
     expectEqualSequence([[ 0 ]] as [[Int]], permutations) { $0 == $1 }
   }
 
-  if true {
+  do {
     var permutations: [[Int]] = []
     forAllPermutations(2) {
       permutations.append($0)
@@ -309,7 +318,7 @@ SequenceTypeAlgorithms.test("forAllPermutations") {
       [[ 0, 1 ], [ 1, 0 ]] as [[Int]], permutations) { $0 == $1 }
   }
 
-  if true {
+  do {
     var permutations: [[Int]] = []
     forAllPermutations(3) {
       permutations.append($0)
@@ -326,7 +335,7 @@ SequenceTypeAlgorithms.test("forAllPermutations") {
       permutations) { $0 == $1 }
   }
 
-  if true {
+  do {
     var permutations: [[Int]] = []
     forAllPermutations([ 10, 20, 30 ]) {
       permutations.append($0)

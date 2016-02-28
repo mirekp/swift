@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -102,7 +102,7 @@ import SwiftShims
 /// any sequence of mutating operations causes elements to be copied
 /// into unique, contiguous storage which may cost `O(N)` time and
 /// space, where `N` is the length of the string representation (or
-/// more, if the underlying `NSString` is has unusual performance
+/// more, if the underlying `NSString` has unusual performance
 /// characteristics).
 public struct String {
   /// An empty `String`.
@@ -145,7 +145,7 @@ extension String {
     if let stringBuffer = stringBufferOptional {
       return String(_storage: stringBuffer)
     } else {
-      return .None
+      return nil
     }
   }
 
@@ -208,7 +208,7 @@ extension String : _BuiltinUTF16StringLiteralConvertible {
   public init(
     _builtinUTF16StringLiteral start: Builtin.RawPointer,
     numberOfCodeUnits: Builtin.Word
-  )  {
+  ) {
     self = String(
       _StringCore(
         baseAddress: COpaquePointer(start),
@@ -265,14 +265,14 @@ extension String : CustomDebugStringConvertible {
 }
 
 extension String {
-  /// Return the number of code units occupied by this string
+  /// Returns the number of code units occupied by this string
   /// in the given encoding.
   @warn_unused_result
   func _encodedLength<
     Encoding: UnicodeCodecType
   >(encoding: Encoding.Type) -> Int {
     var codeUnitCount = 0
-    let output: (Encoding.CodeUnit) -> Void = { _ in ++codeUnitCount }
+    let output: (Encoding.CodeUnit) -> Void = { _ in codeUnitCount += 1 }
     self._encode(encoding, output: output)
     return codeUnitCount
   }
@@ -306,11 +306,11 @@ extension String {
 /// - returns:
 ///   * an unspecified value less than zero if `lhs < rhs`,
 ///   * zero if `lhs == rhs`,
-///   * an unspecified value greater than zero  if `lhs > rhs`.
+///   * an unspecified value greater than zero if `lhs > rhs`.
 @_silgen_name("swift_stdlib_compareNSStringDeterministicUnicodeCollation")
 public func _stdlib_compareNSStringDeterministicUnicodeCollation(
   lhs: AnyObject, _ rhs: AnyObject
-)-> Int32
+) -> Int32
 #endif
 
 extension String : Equatable {
@@ -355,7 +355,7 @@ extension String {
       compare = self._core.count - rhs._core.count
     }
     // This efficiently normalizes the result to -1, 0, or 1 to match the
-    // behaviour of NSString's compare function.
+    // behavior of NSString's compare function.
     return (compare > 0 ? 1 : 0) - (compare < 0 ? 1 : 0)
   }
 #endif
@@ -509,7 +509,7 @@ public func + (lhs: String, rhs: String) -> String {
 }
 
 // String append
-public func += (inout lhs: String, rhs: String) {
+public func += (lhs: inout String, rhs: String) {
   if lhs.isEmpty {
     lhs = rhs
   }
@@ -579,12 +579,12 @@ extension String {
 extension String {
   public mutating func reserveCapacity(n: Int) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.reserveCapacity(n)
+      (v: inout CharacterView) in v.reserveCapacity(n)
     }
   }
   public mutating func append(c: Character) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.append(c)
+      (v: inout CharacterView) in v.append(c)
     }
   }
   
@@ -593,7 +593,7 @@ extension String {
   where S.Generator.Element == Character
   >(newElements: S) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.appendContentsOf(newElements)
+      (v: inout CharacterView) in v.appendContentsOf(newElements)
     }
   }
   
@@ -630,9 +630,9 @@ extension SequenceType where Generator.Element == String {
     let separatorSize = separator.utf16.count
 
     let reservation = self._preprocessingPass {
-      (s: Self) -> Int in
+      () -> Int in
       var r = 0
-      for chunk in s {
+      for chunk in self {
         // FIXME(performance): this code assumes UTF-16 in-memory representation.
         // It should be switched to low-level APIs.
         r += separatorSize + chunk.utf16.count
@@ -644,19 +644,19 @@ extension SequenceType where Generator.Element == String {
       result.reserveCapacity(n)
     }
 
-    if separatorSize != 0 {
-      var gen = generate()
-      if let first = gen.next() {
-        result.appendContentsOf(first)
-        while let next = gen.next() {
-          result.appendContentsOf(separator)
-          result.appendContentsOf(next)
-        }
-      }
-    }
-    else {
+    if separatorSize == 0 {
       for x in self {
         result.appendContentsOf(x)
+      }
+      return result
+    }
+    
+    var gen = generate()
+    if let first = gen.next() {
+      result.appendContentsOf(first)
+      while let next = gen.next() {
+        result.appendContentsOf(separator)
+        result.appendContentsOf(next)
       }
     }
 
@@ -677,7 +677,7 @@ extension String {
     subRange: Range<Index>, with newElements: C
   ) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.replaceRange(subRange, with: newElements)
+      (v: inout CharacterView) in v.replaceRange(subRange, with: newElements)
     }
   }
 
@@ -700,7 +700,7 @@ extension String {
   /// - Complexity: O(`self.count`).
   public mutating func insert(newElement: Character, atIndex i: Index) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.insert(newElement, atIndex: i)
+      (v: inout CharacterView) in v.insert(newElement, atIndex: i)
     }
   }
 
@@ -713,7 +713,7 @@ extension String {
     S : CollectionType where S.Generator.Element == Character
   >(newElements: S, at i: Index) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.insertContentsOf(newElements, at: i)
+      (v: inout CharacterView) in v.insertContentsOf(newElements, at: i)
     }
   }
 
@@ -724,7 +724,7 @@ extension String {
   /// - Complexity: O(`self.count`).
   public mutating func removeAtIndex(i: Index) -> Character {
     return withMutableCharacters {
-      (inout v: CharacterView) in v.removeAtIndex(i)
+      (v: inout CharacterView) in v.removeAtIndex(i)
     }
   }
 
@@ -735,7 +735,7 @@ extension String {
   /// - Complexity: O(`self.count`).
   public mutating func removeRange(subRange: Range<Index>) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.removeRange(subRange)
+      (v: inout CharacterView) in v.removeRange(subRange)
     }
   }
 
@@ -748,7 +748,7 @@ extension String {
   ///   when `self` is going to be grown again.
   public mutating func removeAll(keepCapacity keepCapacity: Bool = false) {
     withMutableCharacters {
-      (inout v: CharacterView) in v.removeAll(keepCapacity: keepCapacity)
+      (v: inout CharacterView) in v.removeAll(keepCapacity: keepCapacity)
     }
   }
 }
@@ -955,7 +955,7 @@ extension String.Index {
     }
   }
 
-  /// Return the position in `utf8` that corresponds exactly
+  /// Returns the position in `utf8` that corresponds exactly
   /// to `self`.
   ///
   /// - Requires: `self` is an element of `String(utf8).indices`.
@@ -966,7 +966,7 @@ extension String.Index {
     return String.UTF8View.Index(self, within: utf8)
   }
 
-  /// Return the position in `utf16` that corresponds exactly
+  /// Returns the position in `utf16` that corresponds exactly
   /// to `self`.
   ///
   /// - Requires: `self` is an element of `String(utf16).indices`.
@@ -977,7 +977,7 @@ extension String.Index {
     return String.UTF16View.Index(self, within: utf16)
   }
 
-  /// Return the position in `unicodeScalars` that corresponds exactly
+  /// Returns the position in `unicodeScalars` that corresponds exactly
   /// to `self`.
   ///
   /// - Requires: `self` is an element of `String(unicodeScalars).indices`.

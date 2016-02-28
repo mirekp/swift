@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -140,14 +140,14 @@ func !=(lhs: Builtin.RawPointer, rhs: Builtin.RawPointer) -> Bool {
   return !(lhs == rhs)
 }
 
-/// Return `true` iff `t0` is identical to `t1`; i.e. if they are both
+/// Returns `true` iff `t0` is identical to `t1`; i.e. if they are both
 /// `nil` or they both represent the same type.
 @warn_unused_result
 public func == (t0: Any.Type?, t1: Any.Type?) -> Bool {
   return unsafeBitCast(t0, Int.self) == unsafeBitCast(t1, Int.self)
 }
 
-/// Return `false` iff `t0` is identical to `t1`; i.e. if they are both
+/// Returns `false` iff `t0` is identical to `t1`; i.e. if they are both
 /// `nil` or they both represent the same type.
 @warn_unused_result
 public func != (t0: Any.Type?, t1: Any.Type?) -> Bool {
@@ -175,8 +175,8 @@ func _conditionallyUnreachable() {
 }
 
 @warn_unused_result
-@_silgen_name("swift_isClassOrObjCExistential")
-func _swift_isClassOrObjCExistential<T>(x: T.Type) -> Bool
+@_silgen_name("swift_isClassOrObjCExistentialType")
+func _swift_isClassOrObjCExistentialType<T>(x: T.Type) -> Bool
 
 /// Returns `true` iff `T` is a class type or an `@objc` existential such as
 /// `AnyObject`.
@@ -194,7 +194,7 @@ internal func _isClassOrObjCExistential<T>(x: T.Type) -> Bool {
   }
 
   // Maybe a class.
-  return _swift_isClassOrObjCExistential(x)
+  return _swift_isClassOrObjCExistentialType(x)
 }
 
 /// Returns an `UnsafePointer` to the storage used for `object`.  There's
@@ -318,7 +318,7 @@ public func _slowPath<C : BooleanType>(x: C) -> Bool {
 @warn_unused_result
 internal func _usesNativeSwiftReferenceCounting(theClass: AnyClass) -> Bool {
 #if _runtime(_ObjC)
-  return _swift_usesNativeSwiftReferenceCounting_class(
+  return swift_objc_class_usesNativeSwiftReferenceCounting(
     unsafeAddressOf(theClass)
   )
 #else
@@ -327,24 +327,25 @@ internal func _usesNativeSwiftReferenceCounting(theClass: AnyClass) -> Bool {
 }
 
 @warn_unused_result
-@_silgen_name("_swift_class_getInstancePositiveExtentSize_native")
-func _swift_class_getInstancePositiveExtentSize_native(theClass: AnyClass) -> UInt
+@_silgen_name("swift_class_getInstanceExtents")
+func swift_class_getInstanceExtents(theClass: AnyClass)
+  -> (negative: UInt, positive: UInt)
 
-/// - Returns: `class_getInstanceSize(theClass)`.
+@warn_unused_result
+@_silgen_name("swift_objc_class_unknownGetInstanceExtents")
+func swift_objc_class_unknownGetInstanceExtents(theClass: AnyClass)
+  -> (negative: UInt, positive: UInt)
+
+/// - Returns: 
 @inline(__always)
 @warn_unused_result
 internal func _class_getInstancePositiveExtentSize(theClass: AnyClass) -> Int {
 #if _runtime(_ObjC)
-  return Int(_swift_class_getInstancePositiveExtentSize(
-      unsafeAddressOf(theClass)))
+  return Int(swift_objc_class_unknownGetInstanceExtents(theClass).positive)
 #else
-  return Int(_swift_class_getInstancePositiveExtentSize_native(theClass))
+  return Int(swift_class_getInstanceExtents(theClass).positive)
 #endif
 }
-
-@warn_unused_result
-@_silgen_name("_swift_isClass")
-public func _swift_isClass(x: Any) -> Bool
 
 //===--- Builtin.BridgeObject ---------------------------------------------===//
 
@@ -386,6 +387,19 @@ internal var _objectPointerLowSpareBitShift: UInt {
 }
 internal var _objCTaggedPointerBits: UInt {
     @inline(__always) get { return 0x8000_0000_0000_0000 }
+}
+#elseif arch(powerpc64) || arch(powerpc64le)
+internal var _objectPointerSpareBits: UInt {
+  @inline(__always) get { return 0x0000_0000_0000_0007 }
+}
+internal var _objectPointerIsObjCBit: UInt {
+  @inline(__always) get { return 0x0000_0000_0000_0002 }
+}
+internal var _objectPointerLowSpareBitShift: UInt {
+    @inline(__always) get { return 0 }
+}
+internal var _objCTaggedPointerBits: UInt {
+    @inline(__always) get { return 0 }
 }
 #endif
 
@@ -474,18 +488,18 @@ internal func _makeBridgeObject(
   )
 }
 
-/// Return the superclass of `t`, if any.  The result is nil if `t` is
+/// Returns the superclass of `t`, if any.  The result is `nil` if `t` is
 /// a root class or class protocol.
 @inline(__always)
 @warn_unused_result
 public // @testable
 func _getSuperclass(t: AnyClass) -> AnyClass? {
   return unsafeBitCast(
-    _swift_getSuperclass_nonNull(unsafeBitCast(t, COpaquePointer.self)),
+    swift_class_getSuperclass(unsafeBitCast(t, COpaquePointer.self)),
     AnyClass.self)
 }
 
-/// Return the superclass of `t`, if any.  The result is nil if `t` is
+/// Returns the superclass of `t`, if any.  The result is `nil` if `t` is
 /// not a class, is a root class, or is a class protocol.
 @inline(__always)
 @warn_unused_result
@@ -513,28 +527,28 @@ func _getSuperclass(t: Any.Type) -> AnyClass? {
 // will attempt to generate generic code for the transparent function
 // and type checking will fail.
 
-/// Return true if `object` is uniquely referenced.
+/// Returns `true` if `object` is uniquely referenced.
 @_transparent
 @warn_unused_result
-internal func _isUnique<T>(inout object: T) -> Bool {
+internal func _isUnique<T>(object: inout T) -> Bool {
   return Bool(Builtin.isUnique(&object))
 }
 
-/// Return true if `object` is uniquely referenced or pinned.
+/// Returns `true` if `object` is uniquely referenced or pinned.
 @_transparent
 @warn_unused_result
-internal func _isUniqueOrPinned<T>(inout object: T) -> Bool {
+internal func _isUniqueOrPinned<T>(object: inout T) -> Bool {
   return Bool(Builtin.isUniqueOrPinned(&object))
 }
 
-/// Return true if `object` is uniquely referenced.
+/// Returns `true` if `object` is uniquely referenced.
 /// This provides sanity checks on top of the Builtin.
 @_transparent
 @warn_unused_result
 public // @testable
-func _isUnique_native<T>(inout object: T) -> Bool {
+func _isUnique_native<T>(object: inout T) -> Bool {
   // This could be a bridge object, single payload enum, or plain old
-  // reference. Any any case it's non pointer bits must be zero, so
+  // reference. Any case it's non pointer bits must be zero, so
   // force cast it to BridgeObject and check the spare bits.
   _sanityCheck(
     (_bitPattern(Builtin.reinterpretCast(object)) & _objectPointerSpareBits)
@@ -544,14 +558,14 @@ func _isUnique_native<T>(inout object: T) -> Bool {
   return Bool(Builtin.isUnique_native(&object))
 }
 
-/// Return true if `object` is uniquely referenced or pinned.
+/// Returns `true` if `object` is uniquely referenced or pinned.
 /// This provides sanity checks on top of the Builtin.
 @_transparent
 @warn_unused_result
 public // @testable
-func _isUniqueOrPinned_native<T>(inout object: T) -> Bool {
+func _isUniqueOrPinned_native<T>(object: inout T) -> Bool {
   // This could be a bridge object, single payload enum, or plain old
-  // reference. Any any case it's non pointer bits must be zero.
+  // reference. Any case it's non pointer bits must be zero.
   _sanityCheck(
     (_bitPattern(Builtin.reinterpretCast(object)) & _objectPointerSpareBits)
     == 0)
@@ -560,11 +574,19 @@ func _isUniqueOrPinned_native<T>(inout object: T) -> Bool {
   return Bool(Builtin.isUniqueOrPinned_native(&object))
 }
 
-/// Return true if type is a POD type. A POD type is a type that does not
+/// Returns `true` if type is a POD type. A POD type is a type that does not
 /// require any special handling on copying or destruction.
 @_transparent
 @warn_unused_result
 public // @testable
 func _isPOD<T>(type: T.Type) -> Bool {
   return Bool(Builtin.ispod(type))
+}
+
+/// Returns `true` if type is nominally an Optional type.
+@_transparent
+@warn_unused_result
+public // @testable
+func _isOptional<T>(type: T.Type) -> Bool {
+  return Bool(Builtin.isOptional(type))
 }

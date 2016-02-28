@@ -93,7 +93,7 @@ func checkOverloadResolution() {
 }
 checkOverloadResolution()
 
-class Base  {
+class Base {
     var v = 0
     required init() {}
     func map() {
@@ -102,13 +102,13 @@ class Base  {
 }
 
 class D1 : Base {
-    required  init() {}
+    required init() {}
     override func map() {
         v = 2
     }
 }
 
-func parse<T:Base>()->T {
+func parse<T:Base>() -> T {
     let inst = T()
     inst.map()
     return inst

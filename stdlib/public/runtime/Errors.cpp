@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -22,9 +22,128 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include "swift/Runtime/Debug.h"
+#include "swift/Basic/Demangle.h"
+#include <cxxabi.h>
+#if !defined(__CYGWIN__)
+#include <execinfo.h>
+#endif
 
 #ifdef __APPLE__
 #include <asl.h>
+#endif
+
+namespace FatalErrorFlags {
+enum: uint32_t {
+  ReportBacktrace = 1 << 0
+};
+} // end namespace FatalErrorFlags
+
+#if !defined(__CYGWIN__)
+LLVM_ATTRIBUTE_ALWAYS_INLINE
+static bool
+isIdentifier(char c)
+{
+  return isalnum(c) || c == '_' || c == '$';
+}
+
+static bool
+demangledLinePrefix(std::string line, std::string prefix,
+                    std::string &out,
+                    bool (*demangle)(std::string, std::string &))
+{
+  int symbolStart = -1;
+  int symbolEnd = -1;
+  
+  for (size_t i = 0; i < line.size(); i++) {
+    char c = line[i];
+    
+    bool hasBegun = symbolStart != -1;
+    bool isIdentifierChar = isIdentifier(c);
+    bool isEndOfSymbol = hasBegun && !isIdentifierChar;
+    bool isEndOfLine = i == line.size() - 1;
+    
+    if (isEndOfLine || isEndOfSymbol) {
+      symbolEnd = i;
+      break;
+    }
+
+    bool canFindPrefix = (line.size() - 2) - i > prefix.size();
+    if (!hasBegun && canFindPrefix && !isIdentifierChar &&
+        line.substr(i + 1, prefix.size()) == prefix) {
+      symbolStart = i + 1;
+      continue;
+    }
+  }
+  
+  if (symbolStart == -1 || symbolEnd == -1) {
+    out = line;
+    return false;
+  } else {
+    auto symbol = line.substr(symbolStart, symbolEnd - symbolStart);
+    
+    std::string demangled;
+    bool success = demangle(symbol, demangled);
+    
+    if (success) {
+      line.replace(symbolStart, symbolEnd - symbolStart, demangled);
+    }
+    
+    out = line;
+    
+    return success;
+  }
+}
+
+static std::string
+demangledLine(std::string line) {
+  std::string res;
+  bool success = false;
+  auto cppPrefix = "_Z"; // not sure how to check for DARWIN's __Z here.
+  success = demangledLinePrefix(line, cppPrefix, res,
+                                [](std::string symbol, std::string &out) {
+    int status;
+    auto demangled = abi::__cxa_demangle(symbol.c_str(), 0, 0, &status);
+    if (demangled == NULL || status != 0) {
+      out = symbol;
+      return false;
+    } else {
+      out = demangled;
+      free(demangled);
+      return true;
+    }
+  });
+  if (success) return res;
+  success = demangledLinePrefix(line, "_T", res,
+                                [](std::string symbol, std::string &out) {
+    out = swift::Demangle::demangleSymbolAsString(symbol);
+    return true;
+  });
+  if (success) return res;
+  return line;
+}
+
+const int STACK_DEPTH = 128;
+
+static char **
+reportBacktrace(int *count)
+{
+  void **addrs = (void **)malloc(sizeof(void *) * STACK_DEPTH);
+  if (addrs == NULL) {
+    if (count) *count = 0;
+    return NULL;
+  }
+  int symbolCount = backtrace(addrs, STACK_DEPTH);
+  if (count) *count = symbolCount;
+
+  char **symbols = backtrace_symbols(addrs, symbolCount);
+  free(addrs);
+  if (symbols == NULL) {
+    if (count) *count = 0;
+    return NULL;
+  }
+
+  return symbols;
+}
 #endif
 
 #ifdef SWIFT_HAVE_CRASHREPORTERCLIENT
@@ -44,7 +163,7 @@ struct crashreporter_annotations_t gCRAnnotations
 
 // Report a message to any forthcoming crash log.
 static void
-reportOnCrash(const char *message)
+reportOnCrash(uint32_t flags, const char *message)
 {
   static pthread_mutex_t crashlogLock = PTHREAD_MUTEX_INITIALIZER;
   pthread_mutex_lock(&crashlogLock);
@@ -67,7 +186,7 @@ reportOnCrash(const char *message)
 #else
 
 static void
-reportOnCrash(const char *message)
+reportOnCrash(uint32_t flags, const char *message)
 {
   // empty
 }
@@ -77,19 +196,37 @@ reportOnCrash(const char *message)
 
 // Report a message to system console and stderr.
 static void
-reportNow(const char *message)
+reportNow(uint32_t flags, const char *message)
 {
   write(STDERR_FILENO, message, strlen(message));
 #ifdef __APPLE__
   asl_log(NULL, NULL, ASL_LEVEL_ERR, "%s", message);
 #endif
+#if !defined(__CYGWIN__)
+  if (flags & FatalErrorFlags::ReportBacktrace) {
+    fputs("Current stack trace:\n", stderr);
+    int count = 0;
+    char **trace = reportBacktrace(&count);
+    for (int i = 0; i < count; i++) {
+      fprintf(stderr, "%s\n", demangledLine(trace[i]).c_str());
+    }
+    free(trace);
+  }
+#endif
 }
 
+/// Report a fatal error to system console, stderr, and crash logs.
+/// Does not crash by itself.
+void swift::swift_reportError(uint32_t flags,
+                              const char *message) {
+  reportNow(flags, message);
+  reportOnCrash(flags, message);
+}
 
 // Report a fatal error to system console, stderr, and crash logs, then abort.
 LLVM_ATTRIBUTE_NORETURN
 void
-swift::fatalError(const char *format, ...)
+swift::fatalError(uint32_t flags, const char *format, ...)
 {
   va_list args;
   va_start(args, format);
@@ -97,89 +234,15 @@ swift::fatalError(const char *format, ...)
   char *log;
   vasprintf(&log, format, args);
 
-  reportNow(log);
-  reportOnCrash(log);
-
+  swift_reportError(flags, log);
   abort();
 }
 
-
-// Report a fatal error to system console, stderr, and crash logs.
-// <prefix>: <message>: file <file>, line <line>\n
-// The message may be omitted by passing messageLength=0.
-extern "C" void
-swift_reportFatalErrorInFile(const char *prefix, intptr_t prefixLength,
-                             const char *message, intptr_t messageLength,
-                             const char *file, intptr_t fileLength,
-                             uintptr_t line) {
-  char *log;
-  asprintf(&log, "%.*s: %.*s%sfile %.*s, line %zu\n", (int)prefixLength, prefix,
-           (int)messageLength, message, (messageLength ? ": " : ""),
-           (int)fileLength, file, (size_t)line);
-
-  reportNow(log);
-  reportOnCrash(log);
-
-  free(log);
-}
-
-// Report a fatal error to system console, stderr, and crash logs.
-// <prefix>: <message>: file <file>, line <line>\n
-// The message may be omitted by passing messageLength=0.
-extern "C" void swift_reportFatalError(const char *prefix,
-                                       intptr_t prefixLength,
-                                       const char *message,
-                                       intptr_t messageLength) {
-  char *log;
-  asprintf(&log, "%.*s: %.*s\n", (int)prefixLength, prefix,
-           (int)messageLength, message);
-
-  reportNow(log);
-  reportOnCrash(log);
-
-  free(log);
-}
-
-// Report a call to an unimplemented initializer.
-// <file>: <line>: <column>: fatal error: use of unimplemented 
-// initializer '<initName>' for class 'className'
-extern "C" void swift_reportUnimplementedInitializerInFile(
-    const char *className, intptr_t classNameLength, const char *initName,
-    intptr_t initNameLength, const char *file, intptr_t fileLength,
-    uintptr_t line, uintptr_t column) {
-  char *log;
-  asprintf(&log, "%.*s: %zu: %zu: fatal error: use of unimplemented "
-                 "initializer '%.*s' for class '%.*s'\n",
-           (int)fileLength, file, (size_t)line, (size_t)column,
-           (int)initNameLength, initName, (int)classNameLength, className);
-
-  reportNow(log);
-  reportOnCrash(log);
-
-  free(log);
-}
-
-// Report a call to an unimplemented initializer.
-// fatal error: use of unimplemented initializer '<initName>' for class
-// 'className'
-extern "C" void swift_reportUnimplementedInitializer(const char *className,
-                                                     intptr_t classNameLength,
-                                                     const char *initName,
-                                                     intptr_t initNameLength) {
-  char *log;
-  asprintf(&log, "fatal error: use of unimplemented "
-                 "initializer '%.*s' for class '%.*s'\n",
-           (int)initNameLength, initName, (int)classNameLength, className);
-
-  reportNow(log);
-  reportOnCrash(log);
-
-  free(log);
-}
-
-// Report a call to a removed method.
+// Crash when a deleted method is called by accident.
+SWIFT_RUNTIME_EXPORT
 LLVM_ATTRIBUTE_NORETURN
 extern "C" void
-swift_reportMissingMethod() {
-  swift::fatalError("fatal error: call of removed method\n");
+swift_deletedMethodError() {
+  swift::fatalError(/* flags = */ 0,
+                    "fatal error: call of deleted method\n");
 }

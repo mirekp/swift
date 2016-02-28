@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -51,13 +51,7 @@ public struct Mirror {
   /// `AncestorRepresentation`.  This setting has no effect on mirrors
   /// reflecting value type instances.
   public enum AncestorRepresentation {
-  /// Generate a default mirror for all ancestor classes.  This is the
-  /// default behavior.
-  ///
-  /// - Note: This option bypasses any implementation of `customMirror`
-  ///   that may be supplied by a `CustomReflectable` ancestor, so this
-  ///   is typically not the right option for a `customMirror`implementation 
-    
+
   /// Generate a default mirror for all ancestor classes.
   ///
   /// This case is the default.
@@ -83,7 +77,7 @@ public struct Mirror {
   ///         children: ["someProperty": self.someProperty],
   ///         ancestorRepresentation: .Customized(super.customMirror)) // <==
   ///     }
-  case Customized(()->Mirror)
+  case Customized(() -> Mirror)
 
   /// Suppress the representation of all ancestor classes.  The
   /// resulting `Mirror`'s `superclassMirror()` is `nil`.
@@ -144,7 +138,7 @@ public struct Mirror {
   @warn_unused_result
   static func _noSuperclassMirror() -> Mirror? { return nil }
 
-  /// Return the legacy mirror representing the part of `subject`
+  /// Returns the legacy mirror representing the part of `subject`
   /// corresponding to the superclass of `staticSubclass`.
   @warn_unused_result
   internal static func _legacyMirror(
@@ -169,7 +163,7 @@ public struct Mirror {
   @warn_unused_result
   internal static func _superclassGenerator<T: Any>(
     subject: T, _ ancestorRepresentation: AncestorRepresentation
-  ) -> ()->Mirror? {
+  ) -> () -> Mirror? {
 
     if let subject = subject as? AnyObject,
       let subjectClass = T.self as? AnyClass,
@@ -338,7 +332,7 @@ public struct Mirror {
     return _makeSuperclassMirror()
   }
 
-  internal let _makeSuperclassMirror: ()->Mirror?
+  internal let _makeSuperclassMirror: () -> Mirror?
   internal let _defaultDescendantRepresentation: DefaultDescendantRepresentation
 }
 
@@ -349,7 +343,7 @@ public struct Mirror {
 /// you can make it conform to `CustomReflectable` and return a custom
 /// `Mirror`.
 public protocol CustomReflectable {
-  /// Return the `Mirror` for `self`.
+  /// Returns the `Mirror` for `self`.
   ///
   /// - Note: If `Self` has value semantics, the `Mirror` should be
   ///   unaffected by subsequent mutations of `self`.
@@ -381,7 +375,7 @@ extension Mirror {
     func customMirror() -> Mirror { return mirror }
   }
   
-  /// Return a specific descendant of the reflected subject, or `nil`
+  /// Returns a specific descendant of the reflected subject, or `nil`
   /// if no such descendant exists.
   ///
   /// A `String` argument selects the first `Child` with a matching label.
@@ -490,7 +484,7 @@ extension _MirrorType {
 internal extension Mirror {
   /// An adapter that represents a legacy `_MirrorType`'s children as
   /// a `Collection` with integer `Index`.  Note that the performance
-  /// characterstics of the underlying `_MirrorType` may not be
+  /// characteristics of the underlying `_MirrorType` may not be
   /// appropriate for random access!  To avoid this pitfall, convert
   /// mirrors to use the new style, which only present forward
   /// traversal in general.
@@ -552,7 +546,7 @@ internal extension Mirror {
   internal init(
     legacy legacyMirror: _MirrorType,
     subjectType: Any.Type,
-    makeSuperclassMirror: (()->Mirror?)? = nil
+    makeSuperclassMirror: (() -> Mirror?)? = nil
   ) {
     if let makeSuperclassMirror = makeSuperclassMirror {
       self._makeSuperclassMirror = makeSuperclassMirror
@@ -698,10 +692,10 @@ extension PlaygroundQuickLook {
 /// `CustomPlaygroundQuickLookable` and return a custom
 /// `PlaygroundQuickLook`.
 public protocol CustomPlaygroundQuickLookable {
-  /// Return the `Mirror` for `self`.
+  /// Returns the `PlaygroundQuickLook` for `self`.
   ///
-  /// - Note: If `Self` has value semantics, the `Mirror` should be
-  ///   unaffected by subsequent mutations of `self`.
+  /// - Note: If `Self` has value semantics, the `PlaygroundQuickLook` should
+  ///   be unaffected by subsequent mutations of `self`.
   @warn_unused_result
   func customPlaygroundQuickLook() -> PlaygroundQuickLook
 }
@@ -805,7 +799,7 @@ extension String {
   /// - SeeAlso: `String.init<T>(T)`
   public init<T>(reflecting subject: T) {
     self.init()
-    debugPrint(subject, terminator: "", toStream: &self)
+    _debugPrint_unlocked(subject, &self)
   }
 }
 

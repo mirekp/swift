@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -22,7 +22,6 @@
 #include "swift/AST/Type.h"
 #include "swift/AST/Types.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/Fixnum.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/PointerUnion.h"
@@ -51,7 +50,7 @@ namespace constraints {
 /// to indicate constraints on its argument or result type.
 class ConstraintLocator : public llvm::FoldingSetNode {
 public:
-  /// \brief Describes the kind of a a particular path element, e.g.,
+  /// \brief Describes the kind of a particular path element, e.g.,
   /// "tuple element", "call result", "base of member lookup", etc.
   enum PathElementKind : unsigned char {
     /// \brief The argument of function application.
@@ -116,7 +115,7 @@ public:
     Load,
     /// The candidate witness during protocol conformance checking.
     Witness,
-    /// This is refering to a type produced by opening a generic type at the
+    /// This is referring to a type produced by opening a generic type at the
     /// base of the locator.
     OpenedGeneric,
   };
@@ -231,9 +230,6 @@ public:
       StoredKindAndValue
     };
 
-    /// \brief The type of storage used for a kind and numeric value.
-    typedef llvm::Fixnum<62> KindAndValueStorage;
-
     /// \brief The actual storage for the path element, which involves both a
     /// kind and (potentially) a value.
     ///
@@ -251,15 +247,13 @@ public:
     uint64_t storedKind : 2;
 
     /// \brief Encode a path element kind and a value into the storage format.
-    static KindAndValueStorage encodeStorage(PathElementKind kind,
-                                             unsigned value) {
-      unsigned result = (value << 8) | (unsigned)kind;
-      return result;
+    static uint64_t encodeStorage(PathElementKind kind, unsigned value) {
+      return ((uint64_t)value << 8) | kind;
     }
 
     /// \brief Decode a storage value into path element kind and value.
     static std::pair<PathElementKind, unsigned>
-    decodeStorage(KindAndValueStorage storage) {
+    decodeStorage(uint64_t storage) {
       return { (PathElementKind)((unsigned)storage & 0xFF), storage >> 8 };
     }
 
@@ -449,17 +443,6 @@ public:
     Profile(id, anchor, getPath());
   }
   
-  /// \brief Determine whether or not constraint failures associated with this
-  /// locator should be discarded.
-  bool shouldDiscardFailures() {
-    return discardFailures;
-  }
-  
-  /// \brief Toggle option to discard constraint failures.
-  void setDiscardFailures(bool shouldDiscard = true) {
-    discardFailures = shouldDiscard;
-  }
-
   /// \brief Produce a debugging dump of this locator.
   LLVM_ATTRIBUTE_DEPRECATED(
       void dump(SourceManager *SM) LLVM_ATTRIBUTE_USED,
@@ -474,8 +457,7 @@ private:
   /// \brief Initialize a constraint locator with an anchor and a path.
   ConstraintLocator(Expr *anchor, ArrayRef<PathElement> path,
                     unsigned flags)
-    : anchor(anchor), numPathElements(path.size()), summaryFlags(flags),
-      discardFailures(false)
+    : anchor(anchor), numPathElements(path.size()), summaryFlags(flags)
   {
     // FIXME: Alignment.
     std::copy(path.begin(), path.end(),
@@ -510,11 +492,6 @@ private:
   /// \brief A set of flags summarizing interesting properties of the path.
   unsigned summaryFlags : 7;
   
-  /// \brief Determines whether or not we should record constraint application
-  /// failures associated with this locator. This information cannot be
-  /// inferred from the path itself, so it is not stored as a summary flag.
-  unsigned discardFailures: 1;
-
   friend class ConstraintSystem;
 };
 

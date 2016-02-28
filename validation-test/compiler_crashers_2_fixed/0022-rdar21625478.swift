@@ -29,11 +29,11 @@ public class TypeIndexed<Value> : Resettable {
   internal var defaultValue: Value
 }
 
-//===--- LoggingWrappers.swift ---------------------------------------===//
+//===--- LoggingWrappers.swift --------------------------------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -146,7 +146,7 @@ extension LoggingSequenceType
   /// `preprocess` on `self` and return its result.  Otherwise, return
   /// `nil`.
   public func _preprocessingPass<R>(
-    preprocess: (Self)->R
+    @noescape preprocess: (Self) -> R
   ) -> R? {
     ++Log._preprocessingPass[selfType]
     return base._preprocessingPass { _ in preprocess(self) }
@@ -267,7 +267,7 @@ public func expectCustomizable<
   T.Log == T.Base.Log
 >(_: T, _ counters: TypeIndexed<Int>,
   stackTrace: SourceLocStack? = nil,
-  file: String = __FILE__, line: UInt = __LINE__,
+  file: String = #file, line: UInt = #line,
   collectMoreInfo: (()->String)? = nil
 ) {
   expectNotEqual(
@@ -286,7 +286,7 @@ public func expectNotCustomizable<
   T.Log == T.Base.Log
 >(_: T, _ counters: TypeIndexed<Int>,
   stackTrace: SourceLocStack? = nil,
-  file: String = __FILE__, line: UInt = __LINE__,
+  file: String = #file, line: UInt = #line,
   collectMoreInfo: (()->String)? = nil
 ) {
   expectNotEqual(

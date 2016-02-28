@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -37,6 +37,7 @@
 #include "llvm/Support/Allocator.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSwitch.h"
 #include <algorithm>
 #include <memory>
 
@@ -176,6 +177,9 @@ struct ASTContext::Implementation {
 
   /// func _unimplemented_initializer(className: StaticString).
   FuncDecl *UnimplementedInitializerDecl = nullptr;
+
+  /// func _undefined<T>(msg: StaticString, file: StaticString, line: UInt) -> T
+  FuncDecl *UndefinedDecl = nullptr;
 
   /// func _stdlib_isOSVersionAtLeast(Builtin.Word,Builtin.Word, Builtin.word)
   //    -> Builtin.Int1
@@ -828,8 +832,8 @@ ProtocolDecl *ASTContext::getProtocol(KnownProtocolKind kind) const {
 
   // _BridgedNSError is in the Foundation module.
   if (kind == KnownProtocolKind::BridgedNSError) {
-    Module *foundation = const_cast<ASTContext *>(this)->getModule(
-                           {{Id_Foundation, SourceLoc()}});
+    Module *foundation =
+        const_cast<ASTContext *>(this)->getLoadedModule(Id_Foundation);
     if (!foundation)
       return nullptr;
 
@@ -982,6 +986,21 @@ ASTContext::getUnimplementedInitializerDecl(LazyResolver *resolver) const {
   // FIXME: Check inputs and outputs.
 
   Impl.UnimplementedInitializerDecl = decl;
+  return decl;
+}
+
+FuncDecl *
+ASTContext::getUndefinedDecl(LazyResolver *resolver) const {
+  if (Impl.UndefinedDecl)
+    return Impl.UndefinedDecl;
+
+  // Look for the function.
+  CanType input, output;
+  auto decl = findLibraryIntrinsic(*this, "_undefined", resolver);
+  if (!decl)
+    return nullptr;
+
+  Impl.UndefinedDecl = decl;
   return decl;
 }
 
@@ -1163,7 +1182,7 @@ bool ASTContext::hasArrayLiteralIntrinsics(LazyResolver *resolver) const {
     && getDeallocateUninitializedArray(resolver);
 }
 
-void ASTContext::addedExternalDecl(Decl *decl) {
+void ASTContext::addExternalDecl(Decl *decl) {
   ExternalDefinitions.insert(decl);
 }
 
@@ -1191,7 +1210,8 @@ ASTContext::createTrivialSubstitutions(BoundGenericType *BGT,
   assert(Params.size() == 1);
   auto Param = Params[0];
   assert(Param->getArchetype() && "Not type-checked yet");
-  Substitution Subst(Param->getArchetype(), BGT->getGenericArgs()[0], {});
+  (void) Param;
+  Substitution Subst(BGT->getGenericArgs()[0], {});
   auto Substitutions = AllocateCopy(llvm::makeArrayRef(Subst));
   auto arena = getArena(BGT->getRecursiveProperties());
   Impl.getArena(arena).BoundGenericSubstitutions
@@ -1335,7 +1355,7 @@ Module *ASTContext::getLoadedModule(Identifier ModuleName) const {
   return LoadedModules.lookup(ModuleName);
 }
 
-void ASTContext::getVisibleTopLevelClangeModules(
+void ASTContext::getVisibleTopLevelClangModules(
     SmallVectorImpl<clang::Module*> &Modules) const {
   getClangModuleLoader()->getClangPreprocessor().getHeaderSearchInfo().
     collectAllModules(Modules);
@@ -1488,6 +1508,19 @@ ASTContext::createDefaultArgumentContext(DeclContext *fn, unsigned index) {
 void ASTContext::destroyDefaultArgumentContext(DefaultArgumentInitializer *DC) {
   // There isn't much value in caching more than one of these.
   Impl.UnusedDefaultArgumentContext = DC;
+}
+
+NormalProtocolConformance *
+ASTContext::getBehaviorConformance(Type conformingType,
+                                   Type conformingInterfaceType,
+                                   ProtocolDecl *protocol,
+                                   SourceLoc loc,
+                                   AbstractStorageDecl *storage,
+                                   ProtocolConformanceState state) {
+  auto conformance = new (*this, AllocationArena::Permanent)
+    NormalProtocolConformance(conformingType, conformingInterfaceType,
+                              protocol, loc, storage, state);
+  return conformance;
 }
 
 NormalProtocolConformance *
@@ -1932,7 +1965,8 @@ bool ASTContext::diagnoseUnintendedObjCMethodOverrides(SourceFile &sf) {
         continue;
     }
 
-    auto classDecl = method->getDeclContext()->isClassOrClassExtensionContext();
+    auto classDecl =
+      method->getDeclContext()->getAsClassOrClassExtensionContext();
     if (!classDecl)
       continue; // error-recovery path, only
 
@@ -2218,7 +2252,8 @@ bool ASTContext::diagnoseObjCUnsatisfiedOptReqConflicts(SourceFile &sf) {
   bool anyDiagnosed = false;
   for (const auto &unsatisfied : localReqs) {
     // Check whether there is a conflict here.
-    ClassDecl *classDecl = unsatisfied.first->isClassOrClassExtensionContext();
+    ClassDecl *classDecl =
+      unsatisfied.first->getAsClassOrClassExtensionContext();
     auto req = unsatisfied.second;
     auto selector = req->getObjCSelector();
     bool isInstanceMethod = req->isInstanceMember();
@@ -2256,6 +2291,55 @@ bool ASTContext::diagnoseObjCUnsatisfiedOptReqConflicts(SourceFile &sf) {
                                     Impl.ObjCUnsatisfiedOptReqs.end());
 
   return anyDiagnosed;
+}
+
+Optional<KnownFoundationEntity> swift::getKnownFoundationEntity(StringRef name){
+  return llvm::StringSwitch<Optional<KnownFoundationEntity>>(name)
+#define FOUNDATION_ENTITY(Name) .Case(#Name, KnownFoundationEntity::Name)
+#include "swift/AST/KnownFoundationEntities.def"
+    .Default(None);
+}
+
+bool swift::nameConflictsWithStandardLibrary(KnownFoundationEntity entity) {
+  switch (entity) {
+  case KnownFoundationEntity::NSArray:
+  case KnownFoundationEntity::NSDictionary:
+  case KnownFoundationEntity::NSInteger:
+  case KnownFoundationEntity::NSRange:
+  case KnownFoundationEntity::NSSet:
+  case KnownFoundationEntity::NSString:
+    return true;
+
+  case KnownFoundationEntity::NSCopying:
+  case KnownFoundationEntity::NSError:
+  case KnownFoundationEntity::NSErrorPointer:
+  case KnownFoundationEntity::NSNumber:
+  case KnownFoundationEntity::NSObject:
+  case KnownFoundationEntity::NSStringEncoding:
+  case KnownFoundationEntity::NSUInteger:
+  case KnownFoundationEntity::NSURL:
+  case KnownFoundationEntity::NSZone:
+    return false;
+  }
+}
+
+StringRef ASTContext::getSwiftName(KnownFoundationEntity kind) {
+  StringRef objcName;
+  switch (kind) {
+#define FOUNDATION_ENTITY(Name) case KnownFoundationEntity::Name:  \
+    objcName = #Name;                                             \
+    break;
+#include "swift/AST/KnownFoundationEntities.def"
+  }
+
+  // If we're omitting needless words and the name won't conflict with
+  // something in the standard library, strip the prefix off the Swift
+  // name.
+  if (LangOpts.OmitNeedlessWords && LangOpts.StripNSPrefix &&
+      !nameConflictsWithStandardLibrary(kind))
+    return objcName.substr(2);
+
+  return objcName;
 }
 
 void ASTContext::dumpArchetypeContext(ArchetypeType *archetype,
@@ -2325,7 +2409,8 @@ void TupleType::Profile(llvm::FoldingSetNodeID &ID,
   ID.AddInteger(Fields.size());
   for (const TupleTypeElt &Elt : Fields) {
     ID.AddPointer(Elt.NameAndVariadic.getOpaqueValue());
-    ID.AddPointer(Elt.TyAndDefaultArg.getOpaqueValue());
+    ID.AddPointer(Elt.getType().getPointer());
+    ID.AddInteger(static_cast<unsigned>(Elt.getDefaultArgKind()));
   }
 }
 
@@ -2917,7 +3002,7 @@ void SILFunctionType::Profile(llvm::FoldingSetNodeID &id,
                               ExtInfo info,
                               ParameterConvention calleeConvention,
                               ArrayRef<SILParameterInfo> params,
-                              SILResultInfo result,
+                              ArrayRef<SILResultInfo> results,
                               Optional<SILResultInfo> errorResult) {
   id.AddPointer(genericParams);
   id.AddInteger(info.getFuncAttrKey());
@@ -2925,7 +3010,9 @@ void SILFunctionType::Profile(llvm::FoldingSetNodeID &id,
   id.AddInteger(params.size());
   for (auto param : params)
     param.profile(id);
-  result.profile(id);
+  id.AddInteger(results.size());
+  for (auto result : results)
+    result.profile(id);
 
   // Just allow the profile length to implicitly distinguish the
   // presence of an error result.
@@ -2935,26 +3022,45 @@ void SILFunctionType::Profile(llvm::FoldingSetNodeID &id,
 SILFunctionType::SILFunctionType(GenericSignature *genericSig,
                                  ExtInfo ext,
                                  ParameterConvention calleeConvention,
-                                 ArrayRef<SILParameterInfo> interfaceParams,
-                                 SILResultInfo interfaceResult,
-                                 Optional<SILResultInfo> interfaceErrorResult,
+                                 ArrayRef<SILParameterInfo> params,
+                                 ArrayRef<SILResultInfo> allResults,
+                                 ArrayRef<SILResultInfo> directResults,
+                                 ArrayRef<SILResultInfo> indirectResults,
+                                 Optional<SILResultInfo> errorResult,
                                  const ASTContext &ctx,
                                  RecursiveTypeProperties properties)
   : TypeBase(TypeKind::SILFunction, &ctx, properties),
-    GenericSig(genericSig),
-    InterfaceResult(interfaceResult) {
-  SILFunctionTypeBits.HasErrorResult = interfaceErrorResult.hasValue();
+    GenericSig(genericSig) {
+  bool hasCombinedResults =
+    (!directResults.empty() && !indirectResults.empty());
+
+  SILFunctionTypeBits.HasErrorResult = errorResult.hasValue();
+  SILFunctionTypeBits.HasCombinedResults = hasCombinedResults;
   SILFunctionTypeBits.ExtInfo = ext.Bits;
-  NumParameters = interfaceParams.size();
+  NumParameters = params.size();
+  NumDirectResults = directResults.size();
+  NumIndirectResults = indirectResults.size();
   assert(!isIndirectParameter(calleeConvention));
   SILFunctionTypeBits.CalleeConvention = unsigned(calleeConvention);
-  memcpy(getMutableParameters().data(), interfaceParams.data(),
-         interfaceParams.size() * sizeof(SILParameterInfo));
-  if (interfaceErrorResult)
-    getMutableErrorResult() = *interfaceErrorResult;
 
-  // Make sure the interface types are sane.
+  memcpy(getMutableParameters().data(), params.data(),
+         params.size() * sizeof(SILParameterInfo));
+  memcpy(getMutableAllResults().data(), allResults.data(),
+         allResults.size() * sizeof(SILResultInfo));
+  if (hasCombinedResults) {
+    memcpy(getMutableDirectResults().data(), directResults.data(),
+           directResults.size() * sizeof(SILResultInfo));
+    memcpy(getMutableIndirectResults().data(), indirectResults.data(),
+           indirectResults.size() * sizeof(SILResultInfo));
+  }
+  if (errorResult)
+    getMutableErrorResult() = *errorResult;
+
+  if (hasSILResultCache())
+    getMutableSILResultCache() = CanType();
+
 #ifndef NDEBUG
+  // Make sure the interface types are sane.
   if (genericSig) {
     for (auto gparam : genericSig->getGenericParams()) {
       (void)gparam;
@@ -2968,13 +3074,27 @@ SILFunctionType::SILFunctionType(GenericSignature *genericSig,
           && !t->castTo<ArchetypeType>()->getSelfProtocol();
       }) && "interface type of generic type should not contain context archetypes");
     }
-    assert(!getResult().getType().findIf([](Type t) {
-      return t->is<ArchetypeType>();
-    }) && "interface type of generic type should not contain context archetypes");
+    for (auto result : getAllResults()) {
+      (void)result;
+      assert(!result.getType().findIf([](Type t) {
+        return t->is<ArchetypeType>();
+      }) && "interface type of generic type should not contain context archetypes");
+    }
     if (hasErrorResult()) {
       assert(!getErrorResult().getType().findIf([](Type t) {
         return t->is<ArchetypeType>();
       }) && "interface type of generic type should not contain context archetypes");
+    }
+  }
+
+  // Make sure the direct and indirect results are sane.
+  assert(allResults.size() == directResults.size() + indirectResults.size());
+  unsigned directIndex = 0, indirectIndex = 0;
+  for (auto result : allResults) {
+    if (result.isDirect()) {
+      assert(directResults[directIndex++] == result);
+    } else {
+      assert(indirectResults[indirectIndex++] == result);
     }
   }
 #endif
@@ -3010,14 +3130,13 @@ CanSILBoxType SILBoxType::get(CanType boxType) {
 
 CanSILFunctionType SILFunctionType::get(GenericSignature *genericSig,
                                     ExtInfo ext, ParameterConvention callee,
-                                    ArrayRef<SILParameterInfo> interfaceParams,
-                                    SILResultInfo interfaceResult,
-                           Optional<SILResultInfo> interfaceErrorResult,
+                                    ArrayRef<SILParameterInfo> params,
+                                    ArrayRef<SILResultInfo> allResults,
+                                    Optional<SILResultInfo> errorResult,
                                     const ASTContext &ctx) {
   llvm::FoldingSetNodeID id;
   SILFunctionType::Profile(id, genericSig, ext, callee,
-                           interfaceParams, interfaceResult,
-                           interfaceErrorResult);
+                           params, allResults, errorResult);
 
   // Do we already have this generic function type?
   void *insertPos;
@@ -3027,41 +3146,47 @@ CanSILFunctionType SILFunctionType::get(GenericSignature *genericSig,
 
   // All SILFunctionTypes are canonical.
 
+  SmallVector<SILResultInfo, 4> directResults;
+  SmallVector<SILResultInfo, 4> indirectResults;
+  for (auto result : allResults) {
+    if (result.isDirect()) {
+      directResults.push_back(result);
+    } else {
+      indirectResults.push_back(result);
+    }
+  }
+  bool hasCombinedResults =
+    (!directResults.empty() && !indirectResults.empty());
+
   // Allocate storage for the object.
   size_t bytes = sizeof(SILFunctionType)
-               + sizeof(SILParameterInfo) * interfaceParams.size()
-               + (interfaceErrorResult ? sizeof(SILResultInfo) : 0);
+               + sizeof(SILParameterInfo) * params.size()
+               + sizeof(SILResultInfo) * allResults.size()
+               + (hasCombinedResults
+                  ? sizeof(SILResultInfo) * allResults.size()
+                  : 0)
+               + (errorResult ? sizeof(SILResultInfo) : 0)
+               + (directResults.size() > 1 ? sizeof(CanType) : 0);
   void *mem = ctx.Allocate(bytes, alignof(SILFunctionType));
 
-  // Right now, generic SIL function types cannot be dependent or contain type
-  // variables, and they're always materializable.
-  // FIXME: If we ever have first-class polymorphic values, we'll need to
-  // revisit this.
   RecursiveTypeProperties properties;
   static_assert(RecursiveTypeProperties::BitWidth == 10,
                 "revisit this if you add new recursive type properties");
-  if (genericSig) {
-    // See getGenericFunctionRecursiveProperties.
-    if (interfaceResult.getType()->getRecursiveProperties().hasDynamicSelf())
-      properties |= RecursiveTypeProperties::HasDynamicSelf;
-  }
-  else {
-    // Nongeneric SIL functions are dependent if they have dependent argument
-    // or return types. They still never contain type variables and are always
-    // materializable.
-    properties |= interfaceResult.getType()->getRecursiveProperties();
-    if (interfaceErrorResult)
-      properties |= interfaceErrorResult->getType()->getRecursiveProperties();
+  for (auto &param : params)
+    properties |= param.getType()->getRecursiveProperties();
+  for (auto &result : allResults)
+    properties |= result.getType()->getRecursiveProperties();
+  if (errorResult)
+    properties |= errorResult->getType()->getRecursiveProperties();
 
-    for (auto &param : interfaceParams) {
-      properties |= param.getType()->getRecursiveProperties();
-    }
-  }
+  // FIXME: If we ever have first-class polymorphic values, we'll need to
+  // revisit this.
+  if (genericSig)
+    properties.removeHasTypeParameter();
 
   auto fnType =
-    new (mem) SILFunctionType(genericSig, ext, callee,
-                              interfaceParams, interfaceResult,
-                              interfaceErrorResult,
+    new (mem) SILFunctionType(genericSig, ext, callee, params, allResults,
+                              directResults, indirectResults, errorResult,
                               ctx, properties);
   ctx.Impl.SILFunctionTypes.InsertNode(fnType, insertPos);
   return CanSILFunctionType(fnType);
@@ -3145,9 +3270,9 @@ ProtocolType::ProtocolType(ProtocolDecl *TheDecl, const ASTContext &Ctx)
 
 LValueType *LValueType::get(Type objectTy) {
   assert(!objectTy->is<ErrorType>() &&
-         "can not have ErrorType wrapped inside LValueType");
+         "cannot have ErrorType wrapped inside LValueType");
   assert(!objectTy->is<LValueType>() && !objectTy->is<InOutType>() &&
-         "can not have 'inout' or @lvalue wrapped inside an @lvalue");
+         "cannot have 'inout' or @lvalue wrapped inside an @lvalue");
 
   auto properties = objectTy->getRecursiveProperties()
                     | RecursiveTypeProperties::IsLValue;
@@ -3165,9 +3290,9 @@ LValueType *LValueType::get(Type objectTy) {
 
 InOutType *InOutType::get(Type objectTy) {
   assert(!objectTy->is<ErrorType>() &&
-         "can not have ErrorType wrapped inside InOutType");
+         "cannot have ErrorType wrapped inside InOutType");
   assert(!objectTy->is<LValueType>() && !objectTy->is<InOutType>() &&
-         "can not have 'inout' or @lvalue wrapped inside an 'inout'");
+         "cannot have 'inout' or @lvalue wrapped inside an 'inout'");
 
   auto properties = objectTy->getRecursiveProperties() |
                      RecursiveTypeProperties::HasInOut;
@@ -3261,7 +3386,7 @@ CanArchetypeType ArchetypeType::getOpened(Type existential,
   existential->getAnyExistentialTypeProtocols(conformsTo);
 
   // Tail-allocate space for the UUID.
-  void *archetypeBuf = ctx.Allocate(sizeof(ArchetypeType) + sizeof(UUID),
+  void *archetypeBuf = ctx.Allocate(totalSizeToAlloc<UUID>(1),
                                     alignof(ArchetypeType), arena);
   
   auto result = ::new (archetypeBuf) ArchetypeType(ctx, existential,
@@ -3373,9 +3498,8 @@ GenericSignature *GenericSignature::get(ArrayRef<GenericTypeParamType *> params,
   }
 
   // Allocate and construct the new signature.
-  size_t bytes = sizeof(GenericSignature)
-               + sizeof(GenericTypeParamType *) * params.size()
-               + sizeof(Requirement) * requirements.size();
+  size_t bytes = totalSizeToAlloc<GenericTypeParamType *, Requirement>(
+      params.size(), requirements.size());
   void *mem = ctx.Allocate(bytes, alignof(GenericSignature));
   auto newSig = new (mem) GenericSignature(params, requirements,
                                            isKnownCanonical);
@@ -3392,8 +3516,8 @@ void DeclName::CompoundDeclName::Profile(llvm::FoldingSetNodeID &id,
     id.AddPointer(arg.get());
 }
 
-DeclName::DeclName(ASTContext &C, Identifier baseName,
-                   ArrayRef<Identifier> argumentNames) {
+void DeclName::initialize(ASTContext &C, Identifier baseName,
+                          ArrayRef<Identifier> argumentNames) {
   if (argumentNames.size() == 0) {
     SimpleOrCompound = IdentifierAndCompound(baseName, true);
     return;
@@ -3409,14 +3533,25 @@ DeclName::DeclName(ASTContext &C, Identifier baseName,
     return;
   }
 
-  auto buf = C.Allocate(sizeof(CompoundDeclName)
-                          + argumentNames.size() * sizeof(Identifier),
-                        alignof(CompoundDeclName));
+  size_t size =
+      CompoundDeclName::totalSizeToAlloc<Identifier>(argumentNames.size());
+  auto buf = C.Allocate(size, alignof(CompoundDeclName));
   auto compoundName = new (buf) CompoundDeclName(baseName,argumentNames.size());
   std::uninitialized_copy(argumentNames.begin(), argumentNames.end(),
                           compoundName->getArgumentNames().begin());
   SimpleOrCompound = compoundName;
   C.Impl.CompoundNames.InsertNode(compoundName, insert);
+}
+
+/// Build a compound value name given a base name and a set of argument names
+/// extracted from a parameter list.
+DeclName::DeclName(ASTContext &C, Identifier baseName,
+                   ParameterList *paramList) {
+  SmallVector<Identifier, 4> names;
+  
+  for (auto P : *paramList)
+    names.push_back(P->getArgumentName());
+  initialize(C, baseName, names);
 }
 
 Optional<Type>

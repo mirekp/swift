@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -122,7 +122,7 @@ static bool isDeclVisibleInLookupMode(ValueDecl *Member, LookupState LS,
   }
 
   if (auto *FD = dyn_cast<FuncDecl>(Member)) {
-    // Can not call static functions on non-metatypes.
+    // Cannot call static functions on non-metatypes.
     if (!LS.isOnMetatype() && FD->isStatic())
       return false;
 
@@ -130,27 +130,27 @@ static bool isDeclVisibleInLookupMode(ValueDecl *Member, LookupState LS,
     return true;
   }
   if (auto *VD = dyn_cast<VarDecl>(Member)) {
-    // Can not use static properties on non-metatypes.
+    // Cannot use static properties on non-metatypes.
     if (!(LS.isQualified() && LS.isOnMetatype()) && VD->isStatic())
       return false;
 
-    // Can not use instance properties on metatypes.
+    // Cannot use instance properties on metatypes.
     if (LS.isOnMetatype() && !VD->isStatic())
       return false;
 
     return true;
   }
   if (isa<EnumElementDecl>(Member)) {
-    // Can not reference enum elements on non-metatypes.
+    // Cannot reference enum elements on non-metatypes.
     if (!(LS.isQualified() && LS.isOnMetatype()))
       return false;
   }
   if (auto CD = dyn_cast<ConstructorDecl>(Member)) {
-    // Constructors with stub implementations can not be called in Swift.
+    // Constructors with stub implementations cannot be called in Swift.
     if (CD->hasStubImplementation())
       return false;
     if (LS.isQualified() && LS.isOnSuperclass()) {
-      // Can not call initializers from a superclass, except for inherited
+      // Cannot call initializers from a superclass, except for inherited
       // convenience initializers.
       return LS.isInheritsSuperclassInitializers() && CD->isInheritable();
     }
@@ -175,7 +175,7 @@ static void doGlobalExtensionLookup(Type BaseType,
   // Look in each extension of this type.
   for (auto extension : nominal->getExtensions()) {
     bool validatedExtension = false;
-    if (TypeResolver && extension->isProtocolExtensionContext()) {
+    if (TypeResolver && extension->getAsProtocolExtensionContext()) {
       if (!TypeResolver->isProtocolExtensionUsable(
               const_cast<DeclContext *>(CurrDC), BaseType, extension)) {
         continue;
@@ -277,7 +277,7 @@ static void doDynamicLookup(VisibleDeclConsumer &Consumer,
       if (D->getOverriddenDecl())
         return;
 
-      // Initializers can not be found by dynamic lookup.
+      // Initializers cannot be found by dynamic lookup.
       if (isa<ConstructorDecl>(D))
         return;
 
@@ -500,6 +500,8 @@ static void lookupVisibleMemberDeclsImpl(
     ClassDecl *CurClass = dyn_cast<ClassDecl>(CurNominal);
 
     if (CurClass && CurClass->hasSuperclass()) {
+      assert(BaseTy.getPointer() != CurClass->getSuperclass().getPointer() &&
+             "type is its own superclass");
       BaseTy = CurClass->getSuperclass();
       Reason = getReasonForSuper(Reason);
 
@@ -519,6 +521,7 @@ static void lookupVisibleMemberDeclsImpl(
 }
 
 namespace {
+
 struct FoundDeclTy {
   ValueDecl *D;
   DeclVisibilityKind Reason;
@@ -527,13 +530,39 @@ struct FoundDeclTy {
       : D(D), Reason(Reason) {}
 
   friend bool operator==(const FoundDeclTy &LHS, const FoundDeclTy &RHS) {
+    // If this ever changes - e.g. to include Reason - be sure to also update
+    // DenseMapInfo<FoundDeclTy>::getHashValue().
     return LHS.D == RHS.D;
   }
+};
 
-  friend bool operator<(const FoundDeclTy &LHS, const FoundDeclTy &RHS) {
-    return LHS.D < RHS.D;
+} // end anonymous namespace
+
+namespace llvm {
+
+template <> struct DenseMapInfo<FoundDeclTy> {
+  static inline FoundDeclTy getEmptyKey() {
+    return FoundDeclTy{nullptr, DeclVisibilityKind::LocalVariable};
+  }
+
+  static inline FoundDeclTy getTombstoneKey() {
+    return FoundDeclTy{reinterpret_cast<ValueDecl *>(0x1),
+                       DeclVisibilityKind::LocalVariable};
+  }
+
+  static unsigned getHashValue(const FoundDeclTy &Val) {
+    // Note: FoundDeclTy::operator== only considers D, so don't hash Reason here.
+    return llvm::hash_value(Val.D);
+  }
+
+  static bool isEqual(const FoundDeclTy &LHS, const FoundDeclTy &RHS) {
+    return LHS == RHS;
   }
 };
+
+} // end llvm namespace
+
+namespace {
 
 /// Similar to swift::conflicting, but lenient about protocol extensions which
 /// don't affect code completion's concept of overloading.
@@ -588,7 +617,7 @@ public:
     }
     auto &PossiblyConflicting = FoundDecls[VD->getName()];
 
-    // Check all overriden decls.
+    // Check all overridden decls.
     {
       auto *CurrentVD = VD->getOverriddenDecl();
       while (CurrentVD) {
@@ -712,13 +741,12 @@ void swift::lookupVisibleDecls(VisibleDeclConsumer &Consumer,
         namelookup::FindLocalVal(SM, Loc, Consumer).visit(AFD->getBody());
       }
 
-      for (auto *P : AFD->getBodyParamPatterns())
-        namelookup::FindLocalVal(SM, Loc, Consumer)
-            .checkPattern(P, DeclVisibilityKind::FunctionParameter);
+      for (auto *P : AFD->getParameterLists())
+        namelookup::FindLocalVal(SM, Loc, Consumer).checkParameterList(P);
 
       // Constructors and destructors don't have 'self' in parameter patterns.
       if (isa<ConstructorDecl>(AFD) || isa<DestructorDecl>(AFD))
-        Consumer.foundDecl(AFD->getImplicitSelfDecl(),
+        Consumer.foundDecl(const_cast<ParamDecl*>(AFD->getImplicitSelfDecl()),
                            DeclVisibilityKind::FunctionParameter);
 
       if (AFD->getExtensionType()) {
@@ -726,7 +754,7 @@ void swift::lookupVisibleDecls(VisibleDeclConsumer &Consumer,
         BaseDecl = AFD->getImplicitSelfDecl();
         DC = DC->getParent();
 
-        if (DC->isProtocolExtensionContext())
+        if (DC->getAsProtocolExtensionContext())
           ExtendedType = DC->getProtocolSelf()->getArchetype();
 
         if (auto *FD = dyn_cast<FuncDecl>(AFD))
@@ -740,9 +768,8 @@ void swift::lookupVisibleDecls(VisibleDeclConsumer &Consumer,
       if (Loc.isValid()) {
         auto CE = cast<ClosureExpr>(ACE);
         namelookup::FindLocalVal(SM, Loc, Consumer).visit(CE->getBody());
-        if (auto P = CE->getParams()) {
-          namelookup::FindLocalVal(SM, Loc, Consumer)
-            .checkPattern(P, DeclVisibilityKind::FunctionParameter);
+        if (auto P = CE->getParameters()) {
+          namelookup::FindLocalVal(SM, Loc, Consumer).checkParameterList(P);
         }
       }
     } else if (auto ED = dyn_cast<ExtensionDecl>(DC)) {
@@ -759,13 +786,10 @@ void swift::lookupVisibleDecls(VisibleDeclConsumer &Consumer,
                                  TypeResolver);
     }
 
-    // Check the generic parameters for something with the given name.
-    if (GenericParams) {
-      namelookup::FindLocalVal(SM, Loc, Consumer)
-          .checkGenericParams(GenericParams,
-                              DeclVisibilityKind::GenericParameter);
-    }
-
+    // Check any generic parameters for something with the given name.
+    namelookup::FindLocalVal(SM, Loc, Consumer)
+          .checkGenericParams(GenericParams);
+    
     DC = DC->getParent();
     Reason = DeclVisibilityKind::MemberOfOutsideNominal;
   }

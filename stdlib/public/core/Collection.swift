@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -15,29 +15,28 @@ public func count <T : CollectionType>(x: T) -> T.Index.Distance {
   fatalError("unavailable function can't be called")
 }
 
-/// A protocol representing the minimal requirements of
-/// `CollectionType`.
+/// A type that provides subscript access to its elements.
 ///
-/// - Note: In most cases, it's best to ignore this protocol and use
+/// - Important: In most cases, it's best to ignore this protocol and use
 ///   `CollectionType` instead, as it has a more complete interface.
-//
-// This protocol is almost an implementation detail of the standard
-// library; it is used to deduce things like the `SubSequence` and
-// `Generator` type from a minimal collection, but it is also used in
-// exposed places like as a constraint on IndexingGenerator.
 public protocol Indexable {
+  // This protocol is almost an implementation detail of the standard
+  // library; it is used to deduce things like the `SubSequence` and
+  // `Generator` type from a minimal collection, but it is also used in
+  // exposed places like as a constraint on IndexingGenerator.
+
   /// A type that represents a valid position in the collection.
   ///
   /// Valid indices consist of the position of every element and a
   /// "past the end" position that's not valid for use as a subscript.
-  typealias Index : ForwardIndexType
+  associatedtype Index : ForwardIndexType
 
   /// The position of the first element in a non-empty collection.
   ///
   /// In an empty collection, `startIndex == endIndex`.
   ///
   /// - Complexity: O(1)
-  var startIndex: Index {get}
+  var startIndex: Index { get }
 
   /// The collection's "past the end" position.
   ///
@@ -46,7 +45,7 @@ public protocol Indexable {
   /// `successor()`.
   ///
   /// - Complexity: O(1)
-  var endIndex: Index {get}
+  var endIndex: Index { get }
 
   // The declaration of _Element and subscript here is a trick used to
   // break a cyclic conformance/deduction that Swift can't handle.  We
@@ -56,26 +55,27 @@ public protocol Indexable {
   // its subscript.  Ideally we'd like to constrain this
   // Element to be the same as CollectionType.Generator.Element (see
   // below), but we have no way of expressing it today.
-  typealias _Element
+  associatedtype _Element
 
   /// Returns the element at the given `position`.
   ///
   /// - Complexity: O(1)
-  subscript(position: Index) -> _Element {get}
+  subscript(position: Index) -> _Element { get }
 }
 
+/// A type that supports subscript assignment to a mutable collection.
 public protocol MutableIndexable {
-  typealias Index : ForwardIndexType
+  associatedtype Index : ForwardIndexType
 
-  var startIndex: Index {get}
-  var endIndex: Index {get}
+  var startIndex: Index { get }
+  var endIndex: Index { get }
 
-  typealias _Element
+  associatedtype _Element
 
-  subscript(position: Index) -> _Element {get set}
+  subscript(position: Index) -> _Element { get set }
 }
 
-/// A *generator* for an arbitrary *collection*.  Provided `C`
+/// A generator for an arbitrary collection.  Provided `C`
 /// conforms to the other requirements of `Indexable`,
 /// `IndexingGenerator<C>` can be used as the result of `C`'s
 /// `generate()` method.  For example:
@@ -90,7 +90,7 @@ public protocol MutableIndexable {
 public struct IndexingGenerator<Elements : Indexable>
  : GeneratorType, SequenceType {
   
-  /// Create a *generator* over the given collection.
+  /// Create a generator over the given collection.
   public init(_ elements: Elements) {
     self._elements = elements
     self._position = elements.startIndex
@@ -101,19 +101,21 @@ public struct IndexingGenerator<Elements : Indexable>
   ///
   /// - Requires: No preceding call to `self.next()` has returned `nil`.
   public mutating func next() -> Elements._Element? {
-    return _position == _elements.endIndex
-    ? .None : .Some(_elements[_position++])
+    if _position == _elements.endIndex { return nil }
+    let element = _elements[_position]
+    _position._successorInPlace()
+    return element
   }
 
   internal let _elements: Elements
   internal var _position: Elements.Index
 }
 
-/// A multi-pass *sequence* with addressable positions.
+/// A multi-pass sequence with addressable positions.
 ///
 /// Positions are represented by an associated `Index` type.  Whereas
-/// an arbitrary *sequence* may be consumed as it is traversed, a
-/// *collection* is multi-pass: any element may be revisited merely by
+/// an arbitrary sequence may be consumed as it is traversed, a
+/// collection is multi-pass: any element may be revisited merely by
 /// saving its index.
 ///
 /// The sequence view of the elements is identical to the collection
@@ -124,13 +126,13 @@ public struct IndexingGenerator<Elements : Indexable>
 ///       let x = self[i]
 ///     }
 public protocol CollectionType : Indexable, SequenceType {
-  /// A type that provides the *sequence*'s iteration interface and
+  /// A type that provides the sequence's iteration interface and
   /// encapsulates its iteration state.
   ///
   /// By default, a `CollectionType` satisfies `SequenceType` by
   /// supplying an `IndexingGenerator` as its associated `Generator`
   /// type.
-  typealias Generator: GeneratorType = IndexingGenerator<Self>
+  associatedtype Generator: GeneratorType = IndexingGenerator<Self>
 
   // FIXME: Needed here so that the Generator is properly deduced from
   // a custom generate() function.  Otherwise we get an
@@ -148,16 +150,16 @@ public protocol CollectionType : Indexable, SequenceType {
   ///   `SequenceType`, but is restated here with stricter
   ///   constraints: in a `CollectionType`, the `SubSequence` should
   ///   also be a `CollectionType`.
-  typealias SubSequence: Indexable, SequenceType = Slice<Self>
+  associatedtype SubSequence: Indexable, SequenceType = Slice<Self>
 
   /// Returns the element at the given `position`.
-  subscript(position: Index) -> Generator.Element {get}
+  subscript(position: Index) -> Generator.Element { get }
 
   /// Returns a collection representing a contiguous sub-range of
   /// `self`'s elements.
   ///
   /// - Complexity: O(1)
-  subscript(bounds: Range<Index>) -> SubSequence {get}
+  subscript(bounds: Range<Index>) -> SubSequence { get }
 
   /// Returns `self[startIndex..<end]`
   ///
@@ -224,7 +226,7 @@ extension CollectionType where SubSequence == Self {
   /// If `!self.isEmpty`, remove the first element and return it, otherwise
   /// return `nil`.
   ///
-  /// - Complexity: O(`self.count`)
+  /// - Complexity: O(1)
   @warn_unused_result
   public mutating func popFirst() -> Generator.Element? {
     guard !isEmpty else { return nil }
@@ -232,17 +234,19 @@ extension CollectionType where SubSequence == Self {
     self = self[startIndex.successor()..<endIndex]
     return element
   }
+}
 
+extension CollectionType where
+    SubSequence == Self, Index : BidirectionalIndexType {
   /// If `!self.isEmpty`, remove the last element and return it, otherwise
   /// return `nil`.
   ///
-  /// - Complexity: O(`self.count`)
+  /// - Complexity: O(1)
   @warn_unused_result
   public mutating func popLast() -> Generator.Element? {
     guard !isEmpty else { return nil }
-    let lastElementIndex = startIndex.advancedBy(numericCast(count) - 1)
-    let element = self[lastElementIndex]
-    self = self[startIndex..<lastElementIndex]
+    let element = last!
+    self = self[startIndex..<endIndex.predecessor()]
     return element
   }
 }
@@ -260,7 +264,12 @@ extension CollectionType {
   ///
   /// - Complexity: O(1)
   public var first: Generator.Element? {
-    return isEmpty ? nil : self[startIndex]
+    // NB: Accessing `startIndex` may not be O(1) for some lazy collections,
+    // so instead of testing `isEmpty` and then returning the first element,
+    // we'll just rely on the fact that the generator always yields the
+    // first element first.
+    var gen = generate()
+    return gen.next()
   }
 
   /// Returns a value less than or equal to the number of elements in
@@ -301,7 +310,7 @@ extension CollectionType {
 //===----------------------------------------------------------------------===//
 
 extension CollectionType {
-  /// Return an `Array` containing the results of mapping `transform`
+  /// Returns an `Array` containing the results of mapping `transform`
   /// over `self`.
   ///
   /// - Complexity: O(N).
@@ -320,7 +329,8 @@ extension CollectionType {
     var i = self.startIndex
 
     for _ in 0..<count {
-      result.append(try transform(self[i++]))
+      result.append(try transform(self[i]))
+      i = i.successor()
     }
 
     _expectEnd(i, self)
@@ -449,14 +459,14 @@ extension CollectionType {
     while subSequenceEnd != cachedEndIndex {
       if try isSeparator(self[subSequenceEnd]) {
         let didAppend = appendSubsequence(end: subSequenceEnd)
-        ++subSequenceEnd
+        subSequenceEnd._successorInPlace()
         subSequenceStart = subSequenceEnd
         if didAppend && result.count == maxSplit {
           break
         }
         continue
       }
-      ++subSequenceEnd
+      subSequenceEnd._successorInPlace()
     }
 
     if subSequenceStart != cachedEndIndex || allowEmptySlices {
@@ -593,7 +603,8 @@ extension SequenceType
     } else {
       var p = ptr
       for x in self {
-        p++.initialize(x)
+        p.initialize(x)
+        p += 1
       }
       return p
     }
@@ -601,8 +612,8 @@ extension SequenceType
 }
 
 extension CollectionType {
-  public func _preprocessingPass<R>(preprocess: (Self)->R) -> R? {
-    return preprocess(self)
+  public func _preprocessingPass<R>(@noescape preprocess: () -> R) -> R? {
+    return preprocess()
   }
 }
 
@@ -643,7 +654,7 @@ public protocol MutableCollectionType : MutableIndexable, CollectionType {
   // FIXME: should be constrained to MutableCollectionType
   // (<rdar://problem/20715009> Implement recursive protocol
   // constraints)
-  typealias SubSequence : CollectionType /*: MutableCollectionType*/
+  associatedtype SubSequence : CollectionType /*: MutableCollectionType*/
     = MutableSlice<Self>
 
   /// Access the element at `position`.
@@ -707,7 +718,7 @@ internal func _writeBackMutableSlice<
   where
   Collection._Element == Slice_.Generator.Element,
   Collection.Index == Slice_.Index
->(inout self_: Collection, bounds: Range<Collection.Index>, slice: Slice_) {
+>(self_: inout Collection, bounds: Range<Collection.Index>, slice: Slice_) {
   Collection.Index._failEarlyRangeCheck2(
     bounds.startIndex, rangeEnd: bounds.endIndex,
     boundsStart: self_.startIndex, boundsEnd: self_.endIndex)
@@ -724,16 +735,16 @@ internal func _writeBackMutableSlice<
     newElementIndex != newElementsEndIndex {
 
     self_[selfElementIndex] = slice[newElementIndex]
-    ++selfElementIndex
-    ++newElementIndex
+    selfElementIndex._successorInPlace()
+    newElementIndex._successorInPlace()
   }
 
   _precondition(
     selfElementIndex == selfElementsEndIndex,
-    "Can not replace a slice of a MutableCollectionType with a slice of a larger size")
+    "Cannot replace a slice of a MutableCollectionType with a slice of a smaller size")
   _precondition(
     newElementIndex == newElementsEndIndex,
-    "Can not replace a slice of a MutableCollectionType with a slice of a smaller size")
+    "Cannot replace a slice of a MutableCollectionType with a slice of a larger size")
 }
 
 /// Returns the range of `x`'s valid index values.
@@ -747,7 +758,7 @@ public func indices<
   fatalError("unavailable function can't be called")
 }
 
-/// A *generator* that adapts a *collection* `C` and any *sequence* of
+/// A generator that adapts a collection `C` and any sequence of
 /// its `Index` type to present the collection's elements in a
 /// permuted order.
 public struct PermutationGenerator<
@@ -765,11 +776,10 @@ public struct PermutationGenerator<
   ///
   /// - Requires: No preceding call to `self.next()` has returned `nil`.
   public mutating func next() -> Element? {
-    let result = indices.next()
-    return result != nil ? seq[result!] : .None
+    return indices.next().map { seq[$0] }
   }
 
-  /// Construct a *generator* over a permutation of `elements` given
+  /// Construct a generator over a permutation of `elements` given
   /// by `indices`.
   ///
   /// - Requires: `elements[i]` is valid for every `i` in `indices`.

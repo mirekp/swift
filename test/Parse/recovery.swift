@@ -26,9 +26,8 @@ class Container<T> {
 func useContainer() -> () {
   var a : Container<not a type [skip this greater: >] >, b : Int // expected-error{{expected '>' to complete generic argument list}} expected-note{{to match this opening '<'}}
   b = 5 // no-warning
-  a.exists() // expected-warnin
+  a.exists()
 }
-
 
 @xyz class BadAttributes { // expected-error{{unknown attribute 'xyz'}}
   func exists() -> Bool { return true }
@@ -68,7 +67,7 @@ static protocol StaticProtocol {} // expected-error {{declaration cannot be mark
 static typealias StaticTypealias = Int // expected-error {{declaration cannot be marked 'static'}} {{1-8=}}
 
 class ClassWithStaticDecls {
-  class var a = 42 // expected-error {{class stored properties not yet supported}}
+  class var a = 42 // expected-error {{class stored properties not supported}}
 }
 
 //===--- Recovery for missing controlling expression in statements.
@@ -132,6 +131,13 @@ func missingControllingExprInRepeatWhile() {
   } while { true }() // expected-error{{missing condition in a 'while' statement}} expected-error{{consecutive statements on a line must be separated by ';'}} {{10-10=;}}
 }
 
+// SR-165
+func missingWhileInRepeat() {
+  repeat {
+  } // expected-error {{expected 'while' after body of 'repeat' statement}}
+}
+
+// expected-note @+1 {{in call to function 'acceptsClosure'}}
 func acceptsClosure<T>(t: T) -> Bool { return true }
 
 func missingControllingExprInFor() {
@@ -162,20 +168,20 @@ func missingControllingExprInFor() {
   }
 
   // Ensure that we don't do recovery in the following cases.
-  for ; ; {
+  for ; ; { // expected-warning {{C-style for statement is deprecated and will be removed in a future version of Swift}}
   }
 
-  for { true }(); ; {
+  for { true }(); ; { // expected-warning {{C-style for statement is deprecated and will be removed in a future version of Swift}}
   }
 
-  for ; { true }() ; {
+  for ; { true }() ; { // expected-warning {{C-style for statement is deprecated and will be removed in a future version of Swift}}
   }
 
-  for acceptsClosure { 42 }; ; {
+  for acceptsClosure { 42 }; ; { // expected-warning {{C-style for statement is deprecated and will be removed in a future version of Swift}}
   }
 
   // A trailing closure is not accepted for the condition.
-  for ; acceptsClosure { 42 }; { // expected-error{{does not conform to protocol 'BooleanType'}} expected-error{{expression resolves to an unused function}}
+  for ; acceptsClosure { 42 }; { // expected-error{{generic parameter 'T' could not be inferred}} expected-error{{expression resolves to an unused function}}
 // expected-error@-1{{expected ';' in 'for' statement}}
 // expected-error@-2{{braced block}}
   }
@@ -185,7 +191,7 @@ func missingControllingExprInFor() {
 #if true  // <rdar://problem/21679557> compiler crashes on "for{{"
   // expected-error @+2 {{missing initialization in a 'for' statement}}
   // expected-note @+1 2 {{to match this opening '{'}}
-for{{
+for{{ // expected-error {{expression resolves to an unused function}}
 #endif  // expected-error 2 {{expected '}' at end of closure}}
   
 #if true
@@ -228,7 +234,7 @@ func missingControllingExprInSwitch() {
   }
 
   switch { // expected-error {{expected expression in 'switch' statement}}
-    case Int: return // expected-error {{'is' keyword required to pattern match against type name}} {{10-10=is }} expected-warning {{cast from '<<error type>>' to unrelated type 'Int' always fails}}
+    case Int: return // expected-error {{'is' keyword required to pattern match against type name}} {{10-10=is }} 
     case _: return
   }
 
@@ -262,7 +268,7 @@ struct ErrorTypeInVarDecl1 {
 }
 
 struct ErrorTypeInVarDecl2 {
-  var v1 : Int. // expected-error {{expected identifier in dotted type}} expected-error {{postfix '.' is reserved}}
+  var v1 : Int. // expected-error {{expected member name following '.'}}
   var v2 : Int
 }
 
@@ -348,126 +354,63 @@ struct ErrorTypeInVarDeclFunctionType1 {
   var v2 : Int
 }
 
-struct ErrorTypeInVarDeclArrayType1 {
-  var v1 : Int[+] // expected-error {{expected expression after unary operator}} expected-error {{expected expression for size of array type}}
+struct ErrorTypeInVarDeclArrayType1 { // expected-note{{in declaration of 'ErrorTypeInVarDeclArrayType1'}}
+  var v1 : Int[+] // expected-error {{expected declaration}} expected-error {{consecutive declarations on a line must be separated by ';'}}
+  // expected-error @-1 {{expected expression after unary operator}}
+  // expected-error @-2 {{expected expression}}
   var v2 : Int
 }
 
 struct ErrorTypeInVarDeclArrayType2 {
-  var v1 : Int[+ // expected-error {{expected ']' in array type}} expected-note {{to match this opening '['}} expected-error {{unary operator cannot be separated from its operand}} {{17-3=}} expected-error {{expected expression for size of array type}}
-  var v2 : Int
+  var v1 : Int[+ // expected-error {{unary operator cannot be separated from its operand}}
+  var v2 : Int // expected-error {{expected expression}}
 }
 
 struct ErrorTypeInVarDeclArrayType3 {
-  var v1 : Int[ // expected-note {{to match this opening '['}}
-      // expected-error @-1{{expected expression for size of array type}}
-      // expected-error @-2{{expected ']' in array type}}
-  ;
-  var v2 : Int 
+  var v1 : Int[
+  ;  // expected-error {{expected expression}}
+  var v2 : Int
 }
 
 struct ErrorTypeInVarDeclArrayType4 {
   var v1 : Int[1 // expected-error {{expected ']' in array type}} expected-note {{to match this opening '['}}
-  // expected-error @-1{{fixed-length arrays are not yet supported}}
+
 }
 
 struct ErrorInFunctionSignatureResultArrayType1 {
-  func foo() -> Int[ { // expected-error {{expected '{' in body of function declaration}} expected-note {{to match this opening '['}}
-    return [0]
-  } // expected-error {{expected ']' in array type}}
-}
-
-struct ErrorInFunctionSignatureResultArrayType2 {
-  func foo() -> Int[0 { // expected-error {{expected ']' in array type}} expected-note {{to match this opening '['}}
-        // expected-error@-1{{fixed-length arrays are not yet supported}}
+  func foo() -> Int[ { // expected-error {{expected '{' in body of function declaration}}
     return [0]
   }
 }
 
+struct ErrorInFunctionSignatureResultArrayType2 {
+  func foo() -> Int[0 { // expected-error {{expected ']' in array type}} expected-note {{to match this opening '['}}
+    return [0]  // expected-error {{contextual type 'Int' cannot be used with array literal}}
+  }
+}
+
 struct ErrorInFunctionSignatureResultArrayType3 {
-  func foo() -> Int[0] { // expected-error {{fixed-length arrays are not yet supported}}
+  func foo() -> Int[0] { // expected-error {{array types are now written with the brackets around the element type}} {{17-17=[}} {{20-21=}}
     return [0]
   }
 }
 
 struct ErrorInFunctionSignatureResultArrayType4 {
-  func foo() -> Int[0_1] { // expected-error {{fixed-length arrays are not yet supported}}
+  func foo() -> Int[0_1] { // expected-error {{array types are now written with the brackets around the element type}} {{17-17=[}} {{20-21=}}
     return [0]
   }
 }
 
 
 struct ErrorInFunctionSignatureResultArrayType5 {
-  func foo() -> Int[0b1] { // expected-error {{fixed-length arrays are not yet supported}}
+  func foo() -> Int[0b1] { // expected-error {{array types are now written with the brackets around the element type}} {{17-17=[}} {{20-21=}}
     return [0]
   }
 }
 
-struct ErrorInFunctionSignatureResultArrayType6 {
-  func foo() -> Int[0o1] { // expected-error {{fixed-length arrays are not yet supported}}
-    return [0]
-  }
-}
 
-struct ErrorInFunctionSignatureResultArrayType7 {
-  func foo() -> Int[0x1] { // expected-error {{fixed-length arrays are not yet supported}}
-    return [0]
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType8 {
-  func foo() -> Int[1.0] { // expected-error {{expected expression for size of array type}}
-    return [0]
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType9 {
-  func foo() -> Int["1.0"] { // expected-error {{expected expression for size of array type}}
-    return [0]
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType10 {
-  func foo() -> Int[true] { // expected-error {{expected expression for size of array type}}
-    return [0]
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType11 {
+struct ErrorInFunctionSignatureResultArrayType11 { // expected-note{{in declaration of 'ErrorInFunctionSignatureResultArrayType11'}}
   func foo() -> Int[(a){a++}] { // expected-error {{consecutive declarations on a line must be separated by ';'}} {{29-29=;}} expected-error {{expected ']' in array type}} expected-note {{to match this opening '['}} expected-error {{use of unresolved identifier 'a'}} expected-error {{expected declaration}}
-              // expected-error @-1{{expected expression for size of array type}}
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType12 {
-  var x = 0
-  func foo() -> Int[x++] { // expected-error {{expected expression for size of array type}}
-    return [0]
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType13 {
-  var x = 0
-  func foo() -> Int[self.x] { // expected-error {{expected expression for size of array type}}
-    return [0]
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType14 {
-  func foo() -> Int[true ? 1 : 0] { // expected-error {{expected expression for size of array type}}
-    return [0]
-  }
-}
-
-struct ErrorInFunctionSignatureResultArrayType15 {
-  func foo() -> Int[(1, 2)] { // expected-error {{expected expression for size of array type}}
-  }
-}
-
-// Note: If we decide to support integer constant expressions, this should pass
-struct ErrorInFunctionSignatureResultArrayType16 {
-  func foo() -> Int[1 && 1] { // expected-error {{expected expression for size of array type}}
-    return [0]
   }
 }
 
@@ -480,7 +423,7 @@ struct MissingInitializer1 {
 //===--- Recovery for expr-postfix.
 
 func exprPostfix1(x : Int) {
-  x. // expected-error {{postfix '.' is reserved}} expected-error {{expected member name following '.'}}
+  x. // expected-error {{expected member name following '.'}}
 }
 
 func exprPostfix2() {
@@ -499,13 +442,13 @@ class ExprSuper1 {
 
 class ExprSuper2 {
   init() {
-    super. // expected-error {{postfix '.' is reserved}} expected-error {{expected identifier or 'init' after super '.' expression}}
+    super. // expected-error {{expected member name following '.'}} expected-error {{expected '.' or '[' after 'super'}}
   }
 }
 
 //===--- Recovery for braces inside a nominal decl.
 
-struct BracesInsideNominalDecl1 {
+struct BracesInsideNominalDecl1 { // expected-note{{in declaration of 'BracesInsideNominalDecl1'}}
   { // expected-error {{expected declaration}}
     aaa
   }
@@ -516,9 +459,18 @@ func use_BracesInsideNominalDecl1() {
   var _ : BracesInsideNominalDecl1.A // no-error
 }
 
+class SR771 { // expected-note {{in declaration of 'SR771'}}
+    print("No one else was in the room where it happened") // expected-error {{expected declaration}}
+}
+
+extension SR771 { // expected-note {{in extension of 'SR771'}}
+    print("The room where it happened, the room where it happened") // expected-error {{expected declaration}}
+}
+
+
 //===--- Recovery for wrong decl introducer keyword.
 
-class WrongDeclIntroducerKeyword1 {
+class WrongDeclIntroducerKeyword1 { // expected-note{{in declaration of 'WrongDeclIntroducerKeyword1'}}
   notAKeyword() {} // expected-error {{expected declaration}}
   func foo() {}
   class func bar() {}
@@ -531,24 +483,20 @@ Base=1 as Base=1  // expected-error {{cannot assign to immutable expression of t
 
 // <rdar://problem/18634543> Parser hangs at swift::Parser::parseType
 public enum TestA {
-  public static func convertFromExtenndition(
-    // expected-error@+6{{unnamed parameters must be written}} {{5-5=_: }}
-    // expected-error@+5 2{{expected parameter type following ':'}}
-    // expected-error@+4 {{expected ',' separator}} {{18-18=,}}
-    // expected-error@+3 {{expected ',' separator}} {{18-18=,}}
-    // expected-error@+2 {{expected ',' separator}} {{24-24=,}}
-    // expected-error@+1{{use of undeclared type 's'}}
+  // expected-error @+2 {{expected ',' separator}}
+  // expected-error @+1{{expected '{' in body of function declaration}}
+  public static func convertFromExtenndition( // expected-error {{expected parameter name followed by ':'}}
+    // expected-error@+2 {{expected ',' separator}}
+    // expected-error@+1{{expected parameter name followed by ':'}}
     s._core.count != 0, "Can't form a Character from an empty String")
 }
 
 public enum TestB {
-  public static func convertFromExtenndition(
-    // expected-error@+6{{unnamed parameters must be written}} {{5-5=_: }}
-    // expected-error@+5 2{{expected parameter type following ':'}}
-    // expected-error@+4 {{expected ',' separator}} {{18-18=,}}
-    // expected-error@+3 {{expected ',' separator}} {{18-18=,}}
-    // expected-error@+2 {{expected ',' separator}} {{24-24=,}}
-    // expected-error@+1{{use of undeclared type 's'}}
+  // expected-error@+2 {{expected ',' separator}}
+  // expected-error@+1{{expected '{' in body of function declaration}}
+  public static func convertFromExtenndition( // expected-error {{expected parameter name followed by ':'}}
+    // expected-error@+2 {{expected ',' separator}}
+    // expected-error@+1 {{expected parameter name followed by ':'}}
     s._core.count ?= 0, "Can't form a Character from an empty String")
 }
 
@@ -557,9 +505,9 @@ public enum TestB {
 // <rdar://problem/18634543> Infinite loop and unbounded memory consumption in parser
 class bar {}
 var baz: bar
-// expected-error@+1{{unnamed parameters must be written}} {{11-11=_: }}
+// expected-error@+1{{unnamed parameters must be written with the empty name '_'}}
 func foo1(bar!=baz) {}
-// expected-error@+1{{unnamed parameters must be written}} {{11-11=_: }}
+// expected-error@+1{{unnamed parameters must be written with the empty name '_'}}
 func foo2(bar! = baz) {}
 
 
@@ -584,26 +532,26 @@ case let (jeb):
 // expected-error@+1{{extraneous '}' at top level}} {{1-2=}}
 }
 
+
+#if true
+
 // rdar://19605164
-// expected-note@+4{{to match this opening '('}}
-// expected-note@+3{{to match this opening '['}}
 // expected-error@+2{{use of undeclared type 'S'}}
 struct Foo19605164 {
-func a(s: S[{{g) -> Int {}
-// expected-error@+5{{expected parameter type following ':'}}
-// expected-error@+4{{expected ']' in array type}}
-// expected-error@+3{{expected ')' in parameter}}
-// expected-error@+2{{expected ',' separator}} {{3-3=,}}
-// expected-error@+1{{expected ',' separator}} {{3-3=,}}
+func a(s: S[{{g) -> Int {}  // expected-note {{to match this opening '('}}
+// expected-error@+3 {{expected parameter name followed by ':'}}
+// expected-error@+2 2 {{expected ',' separator}}
+// expected-error@+1 {{expected ')' in parameter}}
 }}}
-
-
+#endif
+  
+  
+  
 // rdar://19605567
 // expected-error@+3{{expected '(' for initializer parameters}}
 // expected-error@+2{{initializers may only be declared within a type}}
 // expected-error@+1{{expected an identifier to name generic parameter}}
 func F() { init<( } )}
-
 
 // rdar://20337695
 func f1() {
@@ -626,9 +574,9 @@ func testMultiPatternConditionRecovery(x: Int?) {
     _ = z
   }
 
-  // expected-error@+1 {{binding ended by previous 'where' clause; use 'let' to introduce a new one}} {{30-30=let }}
-  if let y = x where y == 0, z = x {
-    _ = z
+  // expected-error@+1 {{binding ended by previous 'where' clause; use 'var' to introduce a new one}} {{30-30=var }}
+  if var y = x where y == 0, z = x {
+    z = y; y = z
   }
 
   // <rdar://problem/20883210> QoI: Following a "let" condition with boolean condition spouts nonsensical errors
@@ -680,8 +628,8 @@ class r22240342 {
 
 // <rdar://problem/22387625> QoI: Common errors: 'let x= 5' and 'let x =5' could use Fix-its
 func r22387625() {
-  let _= 5 // expected-error{{postfix '=' is reserved}} {{8-8= }}
-  let _ =5 // expected-error{{prefix '=' is reserved}} {{10-10= }}
+  let _= 5 // expected-error{{'=' must have consistent whitespace on both sides}} {{8-8= }}
+  let _ =5 // expected-error{{'=' must have consistent whitespace on both sides}} {{10-10= }}
 }
 
 
@@ -705,4 +653,23 @@ func test23719432() {
   &(Int:x)  // expected-error {{'&' can only appear immediately in a call argument list}}
 }
 
+// <rdar://problem/19911096> QoI: terrible recovery when using '·' for an operator
+infix operator · {  // expected-error {{'·' is considered to be an identifier, not an operator}}
+  associativity none precedence 150
+}
 
+// <rdar://problem/21712891> Swift Compiler bug: String subscripts with range should require closing bracket.
+func r21712891(s : String) -> String {
+  let a = s.startIndex..<s.startIndex
+  // The specific errors produced don't actually matter, but we need to reject this.
+  return "\(s[a)"  // expected-error 3 {{}}
+}
+
+
+// <rdar://problem/24029542> "Postfix '.' is reserved" error message" isn't helpful
+func postfixDot(a : String) {
+  _ = a.utf8
+  _ = a.   utf8  // expected-error {{extraneous whitespace after '.' is not permitted}} {{9-12=}}
+  _ = a.       // expected-error {{expected member name following '.'}}
+    a.         // expected-error {{expected member name following '.'}}
+}

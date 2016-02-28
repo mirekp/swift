@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -20,6 +20,14 @@
 // XFAIL: linux
 
 import StdlibUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
 
 var mirrors = TestSuite("Mirrors")
 
@@ -55,13 +63,15 @@ func find(substring: String, within domain: String) -> String.Index? {
   if (domainCount < substringCount) { return nil }
   var sliceStart = domain.startIndex
   var sliceEnd = domain.startIndex.advancedBy(substringCount)
-  for var i = 0;; ++i  {
+  var i = 0
+  while true {
     if domain[sliceStart..<sliceEnd] == substring {
       return sliceStart
     }
     if i == domainCount - substringCount { break }
-    ++sliceStart
-    ++sliceEnd
+    sliceStart = sliceStart.successor()
+    sliceEnd = sliceEnd.successor()
+    i += 1
   }
   return nil
 }
@@ -146,13 +156,13 @@ mirrors.test("Legacy") {
   expectTrue(m.subjectType == [Int].self)
   
   let x0: [Mirror.Child] = [
-    (label: "[0]", value: 1),
-    (label: "[1]", value: 2),
-    (label: "[2]", value: 3)
+    (label: nil, value: 1),
+    (label: nil, value: 2),
+    (label: nil, value: 3)
   ]
   expectFalse(
     zip(x0, m.children).contains {
-      $0.0.label != $0.1.label || $0.0.value as! Int != $0.1.value as! Int
+      $0.0.value as! Int != $0.1.value as! Int
     })
 
   class B { let bx: Int = 0 }
@@ -162,7 +172,7 @@ mirrors.test("Legacy") {
   
   func expectBMirror(
     mb: Mirror,   stackTrace: SourceLocStack = SourceLocStack(),
-    file: String = __FILE__, line: UInt = __LINE__
+    file: String = #file, line: UInt = #line
   ) {
     expectTrue(mb.subjectType == B.self,
       stackTrace: stackTrace, file: file, line: line)
@@ -640,11 +650,8 @@ mirrors.test("class/Cluster") {
 mirrors.test("Addressing") {
   let m0 = Mirror(reflecting: [1, 2, 3])
   expectEqual(1, m0.descendant(0) as? Int)
-  expectEqual(1, m0.descendant("[0]") as? Int)
   expectEqual(2, m0.descendant(1) as? Int)
-  expectEqual(2, m0.descendant("[1]") as? Int)
   expectEqual(3, m0.descendant(2) as? Int)
-  expectEqual(3, m0.descendant("[2]") as? Int)
   
   let m1 = Mirror(reflecting: (a: ["one", "two", "three"], b: 4))
   let ott0 = m1.descendant(0) as? [String]
@@ -660,8 +667,6 @@ mirrors.test("Addressing") {
   expectEqual("two", m1.descendant(0, 1) as? String)
   expectEqual("three", m1.descendant(0, 2) as? String)
   expectEqual("one", m1.descendant(".0", 0) as? String)
-  expectEqual("two", m1.descendant(0, "[1]") as? String)
-  expectEqual("three", m1.descendant(".0", "[2]") as? String)
 
   struct Zee : CustomReflectable {
     func customMirror() -> Mirror {

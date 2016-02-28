@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -13,18 +13,43 @@
 #ifndef SWIFT_AST_PRINTOPTIONS_H
 #define SWIFT_AST_PRINTOPTIONS_H
 
-#include "swift/AST/Attr.h"
+#include "swift/Basic/STLExtras.h"
+#include "swift/AST/AttrKind.h"
+#include "swift/AST/Identifier.h"
 #include <vector>
 
 namespace swift {
 class GenericParamList;
 class CanType;
 class ExtensionDecl;
+class NominalTypeDecl;
 class TypeBase;
 class DeclContext;
 class Type;
 enum DeclAttrKind : unsigned;
 class PrinterArchetypeTransformer;
+
+/// Necessary information for archetype transformation during printing.
+struct ArchetypeTransformContext {
+  Type getTypeBase();
+  NominalTypeDecl *getNominal();
+  PrinterArchetypeTransformer *getTransformer() { return Transformer.get(); }
+  bool isPrintingSynthesizedExtension();
+  bool isPrintingTypeInterface();
+  ArchetypeTransformContext(PrinterArchetypeTransformer *Transformer);
+  ArchetypeTransformContext(PrinterArchetypeTransformer *Transformer,
+                            Type T);
+  ArchetypeTransformContext(PrinterArchetypeTransformer *Transformer,
+                            NominalTypeDecl *NTD);
+  Type transform(Type Input);
+  StringRef transform(StringRef Input);
+private:
+  std::shared_ptr<PrinterArchetypeTransformer> Transformer;
+
+  // When printing a type interface, this is the type to print.
+  // When synthesizing extensions, this is the target nominal.
+  llvm::PointerUnion<TypeBase*, NominalTypeDecl*> TypeBaseOrNominal;
+};
 
 /// Options for printing AST nodes.
 ///
@@ -88,6 +113,13 @@ struct PrintOptions {
   /// \c false.
   bool ExplodePatternBindingDecls = false;
 
+  /// If true, the printer will explode an enum case like this:
+  /// \code
+  ///   case A, B
+  /// \endcode
+  /// into multiple case declarations.
+  bool ExplodeEnumCaseDecls = false;
+
   /// \brief Whether to print implicit parts of the AST.
   bool SkipImplicit = false;
 
@@ -114,6 +146,10 @@ struct PrintOptions {
 
   /// Whether to skip printing 'import' declarations.
   bool SkipImports = false;
+
+  /// \brief Whether to skip printing overrides and witnesses for
+  /// protocol requirements.
+  bool SkipOverrides = false;
 
   /// Whether to print a long attribute like '\@available' on a separate line
   /// from the declaration or other attributes.
@@ -200,10 +236,8 @@ struct PrintOptions {
   /// \brief Print types with alternative names from their canonical names.
   llvm::DenseMap<CanType, Identifier> *AlternativeTypeNames = nullptr;
 
-  /// \brief When printing a type interface, register the type to print.
-  TypeBase *TypeToPrint = nullptr;
-
-  std::shared_ptr<PrinterArchetypeTransformer> pTransformer;
+  /// \brief The information for converting archetypes to specialized types.
+  std::shared_ptr<ArchetypeTransformContext> TransformContext;
 
   /// Retrieve the set of options for verbose printing to users.
   static PrintOptions printVerbose() {
@@ -229,6 +263,7 @@ struct PrintOptions {
     result.ExcludeAttrList.push_back(DAK_Exported);
     result.ExcludeAttrList.push_back(DAK_Inline);
     result.ExcludeAttrList.push_back(DAK_Rethrows);
+    result.ExcludeAttrList.push_back(DAK_Swift3Migration);
     result.PrintOverrideKeyword = false;
     result.AccessibilityFilter = Accessibility::Public;
     result.PrintIfConfig = false;
@@ -245,9 +280,17 @@ struct PrintOptions {
     return result;
   }
 
-  static PrintOptions printTypeInterface(Type T, DeclContext *DC);
+  static PrintOptions printTypeInterface(Type T, const DeclContext *DC);
 
-  /// Retrive the print options that are suitable to print the testable interface.
+  void setArchetypeTransform(Type T, const DeclContext *DC);
+
+  void setArchetypeTransformForQuickHelp(Type T, DeclContext *DC);
+
+  void initArchetypeTransformerForSynthesizedExtensions(NominalTypeDecl *D);
+
+  void clearArchetypeTransformerForSynthesizedExtensions();
+
+  /// Retrieve the print options that are suitable to print the testable interface.
   static PrintOptions printTestableInterface() {
     PrintOptions result = printInterface();
     result.AccessibilityFilter = Accessibility::Internal;
@@ -270,6 +313,7 @@ struct PrintOptions {
     result.PrintAccessibility = false;
     result.SkipUnavailable = false;
     result.ExcludeAttrList.push_back(DAK_Available);
+    result.ExcludeAttrList.push_back(DAK_Swift3Migration);
     result.ArgAndParamPrinting =
       PrintOptions::ArgAndParamPrintingMode::BothAlways;
     result.PrintDocumentationComments = false;
@@ -312,7 +356,9 @@ struct PrintOptions {
     PO.PrintFunctionRepresentationAttrs = false;
     PO.PrintDocumentationComments = false;
     PO.ExcludeAttrList.push_back(DAK_Available);
+    PO.ExcludeAttrList.push_back(DAK_Swift3Migration);
     PO.SkipPrivateStdlibDecls = true;
+    PO.ExplodeEnumCaseDecls = true;
     return PO;
   }
 };

@@ -1,8 +1,8 @@
-//===-- frontend_main.cpp - Swift Compiler Frontend -----------------------===//
+//===--- frontend_main.cpp - Swift Compiler Frontend ----------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -25,9 +25,11 @@
 #include "swift/AST/NameLookup.h"
 #include "swift/AST/ReferencedNameTracker.h"
 #include "swift/AST/TypeRefinementContext.h"
+#include "swift/Basic/Dwarf.h"
 #include "swift/Basic/Fallthrough.h"
 #include "swift/Basic/FileSystem.h"
 #include "swift/Basic/SourceManager.h"
+#include "swift/Basic/Timer.h"
 #include "swift/Frontend/DiagnosticVerifier.h"
 #include "swift/Frontend/Frontend.h"
 #include "swift/Frontend/PrintingDiagnosticConsumer.h"
@@ -36,7 +38,7 @@
 #include "swift/Option/Options.h"
 #include "swift/PrintAsObjC/PrintAsObjC.h"
 #include "swift/Serialization/SerializationOptions.h"
-#include "swift/SILPasses/Passes.h"
+#include "swift/SILOptimizer/PassManager/Passes.h"
 
 // FIXME: We're just using CompilerInstance::createOutputFile.
 // This API should be sunk down to LLVM.
@@ -52,6 +54,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/Timer.h"
 #include "llvm/Support/YAMLParser.h"
 
 #include <memory>
@@ -166,10 +169,10 @@ static bool extendedTypeIsPrivate(TypeLoc inheritedType) {
   return std::all_of(protocols.begin(), protocols.end(), declIsPrivate);
 }
 
-template <typename StreamTy>
-static void mangleTypeAsContext(StreamTy &&out, const NominalTypeDecl *type) {
-  Mangle::Mangler mangler(out, /*debug style=*/false, /*Unicode=*/true);
+static std::string mangleTypeAsContext(const NominalTypeDecl *type) {
+  Mangle::Mangler mangler(/*debug style=*/false, /*Unicode=*/true);
   mangler.mangleContext(type, Mangle::Mangler::BindGenerics::None);
+  return mangler.finalize();
 }
 
 /// Emits a Swift-style dependencies file.
@@ -299,22 +302,21 @@ static bool emitReferenceDependencies(DiagnosticEngine &diags,
     if (!entry.second)
       continue;
     out << "- \"";
-    mangleTypeAsContext(out, entry.first);
+    out << mangleTypeAsContext(entry.first);
     out << "\"\n";
   }
 
   out << "provides-member:\n";
   for (auto entry : extendedNominals) {
     out << "- [\"";
-    mangleTypeAsContext(out, entry.first);
+    out << mangleTypeAsContext(entry.first);
     out << "\", \"\"]\n";
   }
 
   // This is also part of "provides-member".
   for (auto *ED : extensionsWithJustMembers) {
-    SmallString<32> mangledName;
-    mangleTypeAsContext(llvm::raw_svector_ostream(mangledName),
-                        ED->getExtendedType()->getAnyNominal());
+    auto mangledName = mangleTypeAsContext(
+                                        ED->getExtendedType()->getAnyNominal());
 
     for (auto *member : ED->getMembers()) {
       auto *VD = dyn_cast<ValueDecl>(member);
@@ -322,7 +324,7 @@ static bool emitReferenceDependencies(DiagnosticEngine &diags,
           VD->getFormalAccess() == Accessibility::Private) {
         continue;
       }
-      out << "- [\"" << mangledName.str() << "\", \""
+      out << "- [\"" << mangledName << "\", \""
           << escape(VD->getName()) << "\"]\n";
     }
   }
@@ -376,12 +378,9 @@ static bool emitReferenceDependencies(DiagnosticEngine &diags,
       return lhs->first.first->getName().compare(rhs->first.first->getName());
 
     // Break type name ties by mangled name.
-    SmallString<32> lhsMangledName, rhsMangledName;
-    mangleTypeAsContext(llvm::raw_svector_ostream(lhsMangledName),
-                        lhs->first.first);
-    mangleTypeAsContext(llvm::raw_svector_ostream(rhsMangledName),
-                        rhs->first.first);
-    return lhsMangledName.str().compare(rhsMangledName.str());
+    auto lhsMangledName = mangleTypeAsContext(lhs->first.first);
+    auto rhsMangledName = mangleTypeAsContext(rhs->first.first);
+    return lhsMangledName.compare(rhsMangledName);
   });
   
   for (auto &entry : sortedMembers) {
@@ -394,7 +393,7 @@ static bool emitReferenceDependencies(DiagnosticEngine &diags,
     if (!entry.second)
       out << "!private ";
     out << "[\"";
-    mangleTypeAsContext(out, entry.first.first);
+    out << mangleTypeAsContext(entry.first.first);
     out << "\", \"";
     if (!entry.first.second.empty())
       out << escape(entry.first.second);
@@ -417,7 +416,7 @@ static bool emitReferenceDependencies(DiagnosticEngine &diags,
     if (!isCascading)
       out << "!private ";
     out << "\"";
-    mangleTypeAsContext(out, i->first.first);
+    out <<  mangleTypeAsContext(i->first.first);
     out << "\"\n";
   }
 
@@ -561,9 +560,7 @@ private:
 
     if (Kind == DiagnosticKind::Error)
       return true;
-    if (Info.ID == diag::parameter_extraneous_pound.ID ||
-        Info.ID == diag::parameter_pound_double_up.ID ||
-        Info.ID == diag::forced_downcast_coercion.ID ||
+    if (Info.ID == diag::forced_downcast_coercion.ID ||
         Info.ID == diag::forced_downcast_noop.ID ||
         Info.ID == diag::variable_never_mutated.ID)
       return true;
@@ -795,22 +792,33 @@ static bool performCompile(CompilerInstance &Instance,
   if (Invocation.getSILOptions().LinkMode == SILOptions::LinkAll)
     performSILLinking(SM.get(), true);
 
-  SM->verify();
+  {
+    SharedTimer timer("SIL verification (pre-optimization)");
+    SM->verify();
+  }
 
   // Perform SIL optimization passes if optimizations haven't been disabled.
   // These may change across compiler versions.
-  if (IRGenOpts.Optimize) {
-    StringRef CustomPipelinePath =
-      Invocation.getSILOptions().ExternalPassPipelineFilename;
-    if (!CustomPipelinePath.empty()) {
-      runSILOptimizationPassesWithFileSpecification(*SM, CustomPipelinePath);
+  {
+    SharedTimer timer("SIL optimization");
+    if (Invocation.getSILOptions().Optimization >
+        SILOptions::SILOptMode::None) {
+      StringRef CustomPipelinePath =
+        Invocation.getSILOptions().ExternalPassPipelineFilename;
+      if (!CustomPipelinePath.empty()) {
+        runSILOptimizationPassesWithFileSpecification(*SM, CustomPipelinePath);
+      } else {
+        runSILOptimizationPasses(*SM);
+      }
     } else {
-      runSILOptimizationPasses(*SM);
+      runSILPassesForOnone(*SM);
     }
-  } else {
-    runSILPassesForOnone(*SM);
   }
-  SM->verify();
+
+  {
+    SharedTimer timer("SIL verification (post-optimization)");
+    SM->verify();
+  }
 
   // Gather instruction counts if we are asked to do so.
   if (SM->getOptions().PrintInstCounts) {
@@ -851,6 +859,7 @@ static bool performCompile(CompilerInstance &Instance,
       SerializationOptions serializationOpts;
       serializationOpts.OutputPath = opts.ModuleOutputPath.c_str();
       serializationOpts.DocOutputPath = opts.ModuleDocOutputPath.c_str();
+      serializationOpts.GroupInfoPath = opts.GroupInfoPath.c_str();
       serializationOpts.SerializeAllSIL = opts.SILSerializeAll;
       if (opts.SerializeBridgingHeader)
         serializationOpts.ImportedHeader = opts.ImplicitObjCHeaderPath;
@@ -1013,6 +1022,12 @@ int frontend_main(ArrayRef<const char *>Args,
     return 1;
   }
 
+  // Setting DWARF Version depend on platform
+  IRGenOptions &IRGenOpts = Invocation.getIRGenOptions();
+  IRGenOpts.DWARFVersion = swift::GenericDWARFVersion;
+  if (Invocation.getLangOptions().Target.isWindowsCygwinEnvironment())
+    IRGenOpts.DWARFVersion = swift::CygwinDWARFVersion;
+
   if (Invocation.getFrontendOptions().PrintHelp ||
       Invocation.getFrontendOptions().PrintHelpHidden) {
     unsigned IncludedFlagsBitmask = options::FrontendOption;
@@ -1085,6 +1100,9 @@ int frontend_main(ArrayRef<const char *>Args,
 
   if (Invocation.getDiagnosticOptions().UseColor)
     PDC.forceColors();
+
+  if (Invocation.getFrontendOptions().DebugTimeCompilation)
+    SharedTimer::enableCompilationTimers();
 
   if (Invocation.getFrontendOptions().PrintStats) {
     llvm::EnableStatistics();

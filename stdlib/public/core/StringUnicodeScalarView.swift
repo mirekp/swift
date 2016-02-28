@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -28,9 +28,8 @@ public func <(
 
 extension String {
   /// A collection of [Unicode scalar values](http://www.unicode.org/glossary/#unicode_scalar_value) that
-  /// encode a `String` .
-  public struct UnicodeScalarView : CollectionType, _Reflectable,
-    CustomStringConvertible, CustomDebugStringConvertible {
+  /// encodes a `String` value.
+  public struct UnicodeScalarView : CollectionType, CustomStringConvertible, CustomDebugStringConvertible {
     init(_ _core: _StringCore) {
       self._core = _core
     }
@@ -44,9 +43,10 @@ extension String {
       }
       mutating func next() -> UTF16.CodeUnit? {
         if idx == core.endIndex {
-          return .None
+          return nil
         }
-        return self.core[idx++]
+        defer { idx += 1 }
+        return self.core[idx]
       }
     }
 
@@ -73,11 +73,11 @@ extension String {
       /// - Requires: The previous value is representable.
       @warn_unused_result
       public func predecessor() -> Index {
-        var i = _position
-        let codeUnit = _core[--i]
+        var i = _position-1
+        let codeUnit = _core[i]
         if _slowPath((codeUnit >> 10) == 0b1101_11) {
           if i != 0 && (_core[i - 1] >> 10) == 0b1101_10 {
-            --i
+            i -= 1
           }
         }
         return Index(i, _core)
@@ -123,7 +123,7 @@ extension String {
       case .Result(let us):
         return us
       case .EmptyInput:
-        _sanityCheckFailure("can not subscript using an endIndex")
+        _sanityCheckFailure("cannot subscript using an endIndex")
       case .Error:
         return UnicodeScalar(0xfffd)
       }
@@ -175,7 +175,7 @@ extension String {
             switch self._asciiBase.next() {
             case let x?:
               result = .Result(UnicodeScalar(x))
-            case .None:
+            case nil:
               result = .EmptyInput
             }
           } else {
@@ -188,7 +188,7 @@ extension String {
         case .Result(let us):
           return us
         case .EmptyInput:
-          return .None
+          return nil
         case .Error:
           return UnicodeScalar(0xfffd)
         }
@@ -201,19 +201,13 @@ extension String {
       var _generator: IndexingGenerator<_StringCore>!
     }
 
-    /// Return a *generator* over the `UnicodeScalar`s that comprise
-    /// this *sequence*.
+    /// Returns a generator over the `UnicodeScalar`s that comprise
+    /// this sequence.
     ///
     /// - Complexity: O(1).
     @warn_unused_result
     public func generate() -> Generator {
       return Generator(_core)
-    }
-
-    /// Returns a mirror that reflects `self`.
-    @warn_unused_result
-    public func _getMirror() -> _MirrorType {
-      return _UnicodeScalarViewMirror(self)
     }
 
     public var description: String {
@@ -359,7 +353,7 @@ extension String.UnicodeScalarIndex {
     self.init(characterIndex._base._position, unicodeScalars._core)
   }
 
-  /// Return the position in `utf8` that corresponds exactly
+  /// Returns the position in `utf8` that corresponds exactly
   /// to `self`.
   ///
   /// - Requires: `self` is an element of `String(utf8)!.indices`.
@@ -368,7 +362,7 @@ extension String.UnicodeScalarIndex {
     return String.UTF8View.Index(self, within: utf8)
   }
 
-  /// Return the position in `utf16` that corresponds exactly
+  /// Returns the position in `utf16` that corresponds exactly
   /// to `self`.
   ///
   /// - Requires: `self` is an element of `String(utf16)!.indices`.
@@ -379,7 +373,7 @@ extension String.UnicodeScalarIndex {
     return String.UTF16View.Index(self, within: utf16)
   }
 
-  /// Return the position in `characters` that corresponds exactly
+  /// Returns the position in `characters` that corresponds exactly
   /// to `self`, or if no such position exists, `nil`.
   ///
   /// - Requires: `self` is an element of `characters.unicodeScalars.indices`.
@@ -410,5 +404,20 @@ extension String.UnicodeScalarIndex {
       scalars[self].value)
 
     return segmenter.isBoundary(gcb0, gcb1)
+  }
+}
+
+// Reflection
+extension String.UnicodeScalarView : CustomReflectable {
+  /// Returns a mirror that reflects `self`.
+  @warn_unused_result
+  public func customMirror() -> Mirror {
+    return Mirror(self, unlabeledChildren: self)
+  }
+}
+
+extension String.UnicodeScalarView : CustomPlaygroundQuickLookable {
+  public func customPlaygroundQuickLook() -> PlaygroundQuickLook {
+    return .Text(description)
   }
 }

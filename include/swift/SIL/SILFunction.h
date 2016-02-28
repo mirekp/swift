@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -18,6 +18,7 @@
 #define SWIFT_SIL_SILFUNCTION_H
 
 #include "swift/SIL/SILBasicBlock.h"
+#include "swift/SIL/SILDebugScope.h"
 #include "swift/SIL/SILLinkage.h"
 #include "llvm/ADT/StringMap.h"
 
@@ -102,13 +103,13 @@ private:
   /// functions in the stdlib.
   unsigned Fragile : 1;
 
-  /// Specifies if this function is a thunk or an reabstraction thunk.
+  /// Specifies if this function is a thunk or a reabstraction thunk.
   ///
   /// The inliner uses this information to avoid inlining (non-trivial)
   /// functions into the thunk.
   unsigned Thunk : 2;
 
-  /// The visiblity of the parent class, if this is a method which is contained
+  /// The visibility of the parent class, if this is a method which is contained
   /// in the vtable of that class.
   unsigned ClassVisibility : 2;
     
@@ -133,12 +134,15 @@ private:
   /// It does not include references from debug scopes.
   unsigned RefCount = 0;
 
-  /// The function's semantics attribute.
-  std::string SemanticsAttr;
+  /// The function's set of semantics attributes.
+  ///
+  /// TODO: Why is this using a std::string? Why don't we use uniqued
+  /// StringRefs?
+  llvm::SmallVector<std::string, 1> SemanticsAttrSet;
 
   /// The function's effects attribute.
-  EffectsKind EK;
-    
+  EffectsKind EffectsKindAttr;
+
   /// True if this function is inlined at least once. This means that the
   /// debug info keeps a pointer to this function.
   bool Inlined = false;
@@ -165,7 +169,6 @@ private:
               const SILDebugScope *debugScope,
               DeclContext *DC);
 
-public:
   static SILFunction *create(SILModule &M, SILLinkage linkage, StringRef name,
                              CanSILFunctionType loweredType,
                              GenericParamList *contextGenericParams,
@@ -176,10 +179,13 @@ public:
                              IsThunk_t isThunk = IsNotThunk,
                              ClassVisibility_t classVisibility = NotRelevant,
                              Inline_t inlineStrategy = InlineDefault,
-                             EffectsKind EK = EffectsKind::Unspecified,
+                             EffectsKind EffectsKindAttr =
+                               EffectsKind::Unspecified,
                              SILFunction *InsertBefore = nullptr,
                              const SILDebugScope *DebugScope = nullptr,
                              DeclContext *DC = nullptr);
+
+public:
   ~SILFunction();
 
   SILModule &getModule() const { return Module; }
@@ -280,7 +286,7 @@ public:
   /// Return the mangled name of this SILFunction.
   StringRef getName() const { return Name; }
 
-  /// A convencience function which checks if the function has a specific
+  /// A convenience function which checks if the function has a specific
   /// \p name. It is equivalent to getName() == Name, but as it is not
   /// inlined it can be called from the debugger.
   bool hasName(const char *Name) const;
@@ -299,7 +305,7 @@ public:
 
   /// Get's the effective linkage which is used to derive the llvm linkage.
   /// Usually this is the same as getLinkage(), except in one case: if this
-  /// function is a method in a class which has higher visiblity than the
+  /// function is a method in a class which has higher visibility than the
   /// method itself, the function can be referenced from vtables of derived
   /// classes in other compilation units.
   SILLinkage getEffectiveSymbolLinkage() const {
@@ -343,20 +349,39 @@ public:
   /// \returns True if the function is marked with the @_semantics attribute
   /// and has special semantics that the optimizer can use to optimize the
   /// function.
-  bool hasDefinedSemantics() const {
-    return SemanticsAttr.length() > 0;
+  bool hasSemanticsAttrs() const { return SemanticsAttrSet.size() > 0; }
+
+  /// \returns True if the function has a semantic attribute that starts with a
+  /// specific string.
+  ///
+  /// TODO: This needs a better name.
+  bool hasSemanticsAttrThatStartsWith(StringRef S) {
+    return count_if(getSemanticsAttrs(), [&S](const std::string &Attr) -> bool {
+      return StringRef(Attr).startswith(S);
+    });
   }
 
   /// \returns the semantics tag that describes this function.
-  StringRef getSemanticsString() const {
-    assert(hasDefinedSemantics() &&
-           "Accessing a function with no semantics tag");
-    return SemanticsAttr;
-  }
+  ArrayRef<std::string> getSemanticsAttrs() const { return SemanticsAttrSet; }
 
   /// \returns True if the function has the semantics flag \p Value;
-  bool hasSemanticsString(StringRef Value) const {
-    return SemanticsAttr == Value;
+  bool hasSemanticsAttr(StringRef Value) const {
+    return std::count(SemanticsAttrSet.begin(), SemanticsAttrSet.end(), Value);
+  }
+
+  /// Add the given semantics attribute to the attr list set.
+  void addSemanticsAttr(StringRef Ref) {
+    if (hasSemanticsAttr(Ref))
+      return;
+    SemanticsAttrSet.push_back(Ref);
+    std::sort(SemanticsAttrSet.begin(), SemanticsAttrSet.end());
+  }
+
+  /// Remove the semantics
+  void removeSemanticsAttr(StringRef Ref) {
+    auto Iter =
+        std::remove(SemanticsAttrSet.begin(), SemanticsAttrSet.end(), Ref);
+    SemanticsAttrSet.erase(Iter);
   }
 
   /// \returns True if the function is optimizable (i.e. not marked as no-opt),
@@ -411,13 +436,17 @@ public:
   void setInlineStrategy(Inline_t inStr) { InlineStrategy = inStr; }
 
   /// \return the function side effects information.
-  EffectsKind getEffectsKind() const { return EK; }
+  EffectsKind getEffectsKind() const { return EffectsKindAttr; }
 
   /// \return True if the function is annotated with the @effects attribute.
-  bool hasEffectsKind() const { return EK != EffectsKind::Unspecified; }
+  bool hasEffectsKind() const {
+    return EffectsKindAttr != EffectsKind::Unspecified;
+  }
 
   /// \brief Set the function side effect information.
-  void setEffectsKind(EffectsKind E) { EK = E; }
+  void setEffectsKind(EffectsKind E) {
+    EffectsKindAttr = E;
+  }
 
   /// Get this function's global_init attribute.
   ///
@@ -433,9 +462,6 @@ public:
   /// called within the addressor.
   bool isGlobalInit() const { return GlobalInitFlag; }
   void setGlobalInit(bool isGI) { GlobalInitFlag = isGI; }
-
-  StringRef getSemanticsAttr() const { return SemanticsAttr; }
-  void setSemanticsAttr(StringRef attr) { SemanticsAttr = attr; }
 
   bool isKeepAsPublic() const { return KeepAsPublic; }
   void setKeepAsPublic(bool keep) { KeepAsPublic = keep; }
@@ -465,6 +491,10 @@ public:
   /// therefore be dependent, to a type based on the context archetypes of this
   /// SILFunction.
   SILType mapTypeIntoContext(SILType type) const;
+
+  /// Map the given type, which is based on a contextual SILFunctionType and may
+  /// therefore contain context archetypes, to an interface type.
+  Type mapTypeOutOfContext(Type type) const;
 
   /// Converts the given function definition to a declaration.
   void convertToDeclaration();
@@ -516,7 +546,6 @@ public:
     return std::find_if(begin(), end(),
       [](const SILBasicBlock &BB) -> bool {
         const TermInst *TI = BB.getTerminator();
-        // TODO: We autorelease_return should also be handled here.
         return isa<ReturnInst>(TI);
     });
   }
@@ -546,18 +575,30 @@ public:
   //===--------------------------------------------------------------------===//
 
   SILArgument *getArgument(unsigned i) {
-    assert(!empty() && "Can not get argument of a function without a body");
+    assert(!empty() && "Cannot get argument of a function without a body");
     return begin()->getBBArg(i);
   }
 
   const SILArgument *getArgument(unsigned i) const {
-    assert(!empty() && "Can not get argument of a function without a body");
+    assert(!empty() && "Cannot get argument of a function without a body");
     return begin()->getBBArg(i);
   }
 
   ArrayRef<SILArgument *> getArguments() const {
-    assert(!empty() && "Can not get arguments of a function without a body");
+    assert(!empty() && "Cannot get arguments of a function without a body");
     return begin()->getBBArgs();
+  }
+
+  ArrayRef<SILArgument *> getIndirectResults() const {
+    assert(!empty() && "Cannot get arguments of a function without a body");
+    return begin()->getBBArgs().slice(0,
+                            getLoweredFunctionType()->getNumIndirectResults());
+  }
+
+  ArrayRef<SILArgument *> getArgumentsWithoutIndirectResults() const {
+    assert(!empty() && "Cannot get arguments of a function without a body");
+    return begin()->getBBArgs().slice(
+                            getLoweredFunctionType()->getNumIndirectResults());
   }
 
   const SILArgument *getSelfArgument() const {
@@ -590,12 +631,25 @@ public:
   /// cannot be opened.
   void dump(const char *FileName) const;
 
+  // Helper for SILFunction::print().
+  struct ScopeSlotTracker {
+    llvm::DenseMap<const SILDebugScope *, unsigned> ScopeToIDMap;
+    unsigned ScopeIndex = 0;
+  };
+
   /// Pretty-print the SILFunction with the designated stream as a 'sil'
   /// definition.
   ///
   /// \param Verbose In verbose mode, print the SIL locations.
   void print(raw_ostream &OS, bool Verbose = false,
-             bool SortedSIL = false) const;
+             bool SortedSIL = false) const {
+    SILFunction::ScopeSlotTracker Tracker;
+    print(OS, Tracker, Verbose, SortedSIL);
+  }
+
+  /// Version of print that accepts a ScopeSlotTracker.
+  void print(raw_ostream &OS, ScopeSlotTracker &ScopeTracker, bool Verbose,
+             bool SortedSIL) const;
 
   /// Pretty-print the SILFunction's name using SIL syntax,
   /// '@function_mangled_name'.

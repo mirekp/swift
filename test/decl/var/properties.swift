@@ -66,7 +66,7 @@ var a5: X {
 
 // Reading/writing properties
 func accept_x(x: X) { }
-func accept_x_inout(inout x: X) { }
+func accept_x_inout(x: inout X) { }
 
 func test_global_properties(x: X) {
   accept_x(a1)
@@ -110,7 +110,7 @@ var implicitGet3: Int {
 
 // Here we used apply weak to the getter itself, not to the variable.
 var x15: Int {
-  // For the purpose of this test we need to use an attribute that can not be
+  // For the purpose of this test we need to use an attribute that cannot be
   // applied to the getter.
   weak
   var foo: SomeClass? = SomeClass()  // expected-warning {{variable 'foo' was written to, but never read}}
@@ -449,11 +449,11 @@ extension StructWithExtension1 {
 
 class ClassWithExtension1 {
   var foo: Int = 0
-  class var fooStatic = 4 // expected-error {{class stored properties not yet supported in classes; did you mean 'static'?}}
+  class var fooStatic = 4 // expected-error {{class stored properties not supported in classes; did you mean 'static'?}}
 }
 extension ClassWithExtension1 {
   var fooExt: Int // expected-error {{extensions may not contain stored properties}}
-  class var fooExtStatic = 4 // expected-error {{class stored properties not yet supported in classes; did you mean 'static'?}}
+  class var fooExtStatic = 4 // expected-error {{class stored properties not supported in classes; did you mean 'static'?}}
 }
 
 enum EnumWithExtension1 {
@@ -471,7 +471,7 @@ protocol ProtocolWithExtension1 {
 }
 extension ProtocolWithExtension1 {
   final var fooExt: Int // expected-error{{extensions may not contain stored properties}}
-  final static var fooExtStatic = 4 // expected-error{{static stored properties not yet supported in generic types}}
+  final static var fooExtStatic = 4 // expected-error{{static stored properties not supported in generic types}}
 }
 
 func getS() -> S {
@@ -479,7 +479,7 @@ func getS() -> S {
   return s
 }
 
-func test_extension_properties(inout s: S, inout x: X) {
+func test_extension_properties(s: inout S, x: inout X) {
   accept_x(s.x)
   accept_x(s.x2)
   accept_x(s.x3)
@@ -511,7 +511,7 @@ func test_extension_properties(inout s: S, inout x: X) {
 
 extension S {
   mutating
-  func test(inout other_x: X) {
+  func test(other_x: inout X) {
     x = other_x
     x2 = other_x
     x3 = other_x // expected-error{{cannot assign to property: 'x3' is a get-only property}}
@@ -536,7 +536,7 @@ struct Beth {
   var c: Int
 }
 
-func accept_int_inout(inout c: Int) { }
+func accept_int_inout(c: inout Int) { }
 func accept_int(c: Int) { }
 
 func test_settable_of_nonsettable(a: Aleph) {
@@ -584,11 +584,11 @@ enum MonoEnum {
 }
 
 struct GenStruct<T> {
-  static var foo: Int = 0 // expected-error{{static stored properties not yet supported in generic types}}
+  static var foo: Int = 0 // expected-error{{static stored properties not supported in generic types}}
 }
 
 class MonoClass {
-  class var foo: Int = 0 // expected-error{{class stored properties not yet supported in classes; did you mean 'static'?}}
+  class var foo: Int = 0 // expected-error{{class stored properties not supported in classes; did you mean 'static'?}}
 }
 
 protocol Proto {
@@ -884,7 +884,7 @@ class Box {
   }
 }
 
-func double(inout val: Int) {
+func double(val: inout Int) {
   val *= 2
 }
 
@@ -944,7 +944,7 @@ var didSetPropertyTakingOldValue : Int = 0 {
 
 // rdar://16280138 - synthesized getter is defined in terms of archetypes, not interface types
 protocol AbstractPropertyProtocol {
-  typealias Index
+  associatedtype Index
   var a : Index { get }
 }
 struct AbstractPropertyStruct<T> : AbstractPropertyProtocol {
@@ -1138,7 +1138,7 @@ extension rdar17391625derived {
 struct r19874152S1 {
   let number : Int = 42
 }
-_ = r19874152S1(number:64)  // expected-error {{extra argument 'number' in call}}
+_ = r19874152S1(number:64)  // expected-error {{argument passed to call that takes no arguments}}
 _ = r19874152S1()  // Ok
 
 struct r19874152S2 {
@@ -1159,7 +1159,7 @@ _ = r19874152S3()  // expected-error {{missing argument for parameter 'flavour' 
 struct r19874152S4 {
   let number : Int? = nil
 }
-_ = r19874152S4(number:64)  // expected-error {{extra argument 'number' in call}}
+_ = r19874152S4(number:64)  // expected-error {{argument passed to call that takes no arguments}}
 _ = r19874152S4()  // Ok
 
 
@@ -1173,5 +1173,11 @@ struct r19874152S6 {
 }
 _ = r19874152S5()  // ok
 
+
+
+// <rdar://problem/24314506> QoI: Fix-it for dictionary initializer on required class var suggests [] instead of [:]
+class r24314506 {  // expected-error {{class 'r24314506' has no initializers}}
+  var myDict: [String: AnyObject]  // expected-note {{stored property 'myDict' without initial value prevents synthesized initializers}} {{34-34= = [:]}}
+}
 
 

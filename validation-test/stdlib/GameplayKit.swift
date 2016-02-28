@@ -5,6 +5,15 @@
 // UNSUPPORTED: OS=watchos
 
 import StdlibUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
+
 import GameplayKit
 
 // GameplayKit is only available on iOS 9.0 and above, OS X 10.11 and above, and
@@ -24,7 +33,7 @@ GamePlayKitTests.test("GKEntity.componentForClass()") {
   let entity = GKEntity()
   entity.addComponent(TestComponent())
 
-  if true {
+  do {
     var componentForTestComponent =
       entity.componentForClass(TestComponent.self)
     var componentForOtherTestComponent_nil =
@@ -39,7 +48,7 @@ GamePlayKitTests.test("GKEntity.componentForClass()") {
   entity.removeComponentForClass(TestComponent.self)
   entity.addComponent(OtherTestComponent())
 
-  if true {
+  do {
     var componentForOtherTestComponent =
       entity.componentForClass(OtherTestComponent.self)
     var componentForTestComponent_nil =
@@ -53,7 +62,7 @@ GamePlayKitTests.test("GKEntity.componentForClass()") {
 }
 
 GamePlayKitTests.test("GKStateMachine.stateForClass()") {
-  if true {
+  do {
     // Construct a state machine with a custom subclass as the only state.
     let stateMachine = GKStateMachine(
       states: [TestState1()])
@@ -69,7 +78,7 @@ GamePlayKitTests.test("GKStateMachine.stateForClass()") {
     expectEmpty(stateForTestState2_nil)
   }
 
-  if true {
+  do {
     // Construct a state machine with a custom subclass as the only state.
     let stateMachine = GKStateMachine(
       states: [TestState2()])

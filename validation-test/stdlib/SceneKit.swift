@@ -5,6 +5,15 @@
 // UNSUPPORTED: OS=watchos
 
 import StdlibUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
+
 import SceneKit
 
 // SceneKit is only available on iOS 8.0 and above and on OS X 10.8 and above.
@@ -301,7 +310,7 @@ if #available(iOS 8.0, *) {
       allowLossyConversion: true)!
     let sceneSource = SCNSceneSource(data: sceneData, options: nil)!
 
-    if true {
+    do {
       var unarchivedPlaneGeometry =
         sceneSource.entryWithIdentifier("plane", withClass: SCNGeometry.self)
       var unarchivedPlaneNode_nil =
@@ -313,7 +322,7 @@ if #available(iOS 8.0, *) {
       expectEmpty(unarchivedPlaneNode_nil)
     }
 
-    if true {
+    do {
       var unarchivedBoxGeometry =
         sceneSource.entryWithIdentifier("box", withClass: SCNGeometry.self)
       var unarchivedBoxGeometry_nil =
@@ -325,7 +334,7 @@ if #available(iOS 8.0, *) {
       expectEmpty(unarchivedBoxGeometry_nil)
     }
 
-    if true {
+    do {
       var unarchivedBoxNode =
         sceneSource.entryWithIdentifier("box-node", withClass: SCNNode.self)
       var unarchivedBoxNode_nil =

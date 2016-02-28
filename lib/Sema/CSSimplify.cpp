@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -444,7 +444,7 @@ matchCallArguments(ArrayRef<CallArgParam> args,
       if (param.Variadic)
         continue;
 
-      // Parameters with defaults can be unfilfilled.
+      // Parameters with defaults can be unfulfilled.
       if (param.HasDefaultArgument)
         continue;
 
@@ -506,63 +506,20 @@ static ConstraintSystem::SolutionKind
 matchCallArguments(ConstraintSystem &cs, TypeMatchKind kind,
                    Type argType, Type paramType,
                    ConstraintLocatorBuilder locator) {
-  /// Listener used to produce failures if they should be produced.
-  class Listener : public MatchCallArgumentListener {
-    ConstraintSystem &CS;
-    Type ArgType;
-    Type ParamType;
-    ConstraintLocatorBuilder &Locator;
-
-  public:
-    Listener(ConstraintSystem &cs, Type argType, Type paramType,
-             ConstraintLocatorBuilder &locator)
-      : CS(cs), ArgType(argType), ParamType(paramType), Locator(locator) { }
-
-    virtual void extraArgument(unsigned argIdx) {
-      if (!CS.shouldRecordFailures())
-        return;
-
-      CS.recordFailure(CS.getConstraintLocator(Locator),
-                       Failure::ExtraArgument,
-                       argIdx);
-    }
-
-    virtual void missingArgument(unsigned paramIdx) {
-      if (!CS.shouldRecordFailures())
-        return;
-
-      CS.recordFailure(CS.getConstraintLocator(Locator),
-                       Failure::MissingArgument,
-                       ParamType, paramIdx);
-    }
-
-    virtual void outOfOrderArgument(unsigned argIdx, unsigned prevArgIdx) {
-      return;
-    }
-
-    virtual bool relabelArguments(ArrayRef<Identifier> newNames) {
-      if (!CS.shouldAttemptFixes()) {
-        // FIXME: record why this failed. We have renaming.
-        return true;
-      }
-
-      // Add a fix for the name. This is only responsible for recording the fix.
-      auto result = CS.simplifyFixConstraint(
-                      Fix::getRelabelTuple(CS, FixKind::RelabelCallTuple,
-                                           newNames),
-                      ArgType, ParamType,
-                      TypeMatchKind::ArgumentTupleConversion,
-                      ConstraintSystem::TMF_None,
-                      Locator);
-      return result != ConstraintSystem::SolutionKind::Solved;
-    }
-  };
   
   // In the empty existential parameter case, we don't need to decompose the
   // arguments.
   if (paramType->isEmptyExistentialComposition()) {
-    if (argType->is<InOutType>()) {
+    if (argType->is<InOutType>())
       return ConstraintSystem::SolutionKind::Error;
+
+    // If the param type is an empty existential composition, the function can
+    // only have one argument. Check if exactly one argument was passed to this
+    // function, otherwise we obviously have a mismatch
+    if (auto tupleArgType = argType->getAs<TupleType>()) {
+      if (tupleArgType->getNumElements() != 1) {
+        return ConstraintSystem::SolutionKind::Error;
+      }
     }
     return ConstraintSystem::SolutionKind::Solved;
   }
@@ -574,7 +531,7 @@ matchCallArguments(ConstraintSystem &cs, TypeMatchKind kind,
   auto params = decomposeArgParamType(paramType);
 
   // Match up the call arguments to the parameters.
-  Listener listener(cs, argType, paramType, locator);
+  MatchCallArgumentListener listener;
   SmallVector<ParamBinding, 4> parameterBindings;
   if (constraints::matchCallArguments(args, params,
                                       hasTrailingClosure(locator),
@@ -604,7 +561,7 @@ matchCallArguments(ConstraintSystem &cs, TypeMatchKind kind,
   case TypeMatchKind::SameType:
   case TypeMatchKind::ConformsTo:
   case TypeMatchKind::Subtype:
-    llvm_unreachable("Not an call argument constraint");
+    llvm_unreachable("Not a call argument constraint");
   }
   
   auto haveOneNonUserConversion =
@@ -713,7 +670,7 @@ ConstraintSystem::matchTupleTypes(TupleType *tuple1, TupleType *tuple2,
       // If the names don't match, we may have a conflict.
       if (elt1.getName() != elt2.getName()) {
         // Same-type requirements require exact name matches.
-        if (kind == TypeMatchKind::SameType)
+        if (kind <= TypeMatchKind::SameType)
           return SolutionKind::Error;
 
         // For subtyping constraints, just make sure that this name isn't
@@ -954,23 +911,10 @@ ConstraintSystem::matchFunctionTypes(FunctionType *func1, FunctionType *func2,
     return SolutionKind::Error;
 
   // Result type can be covariant (or equal).
-  switch (matchTypes(func1->getResult(), func2->getResult(), subKind,
+  return matchTypes(func1->getResult(), func2->getResult(), subKind,
                      subFlags,
                      locator.withPathElement(
-                       ConstraintLocator::FunctionResult))) {
-  case SolutionKind::Error:
-    return SolutionKind::Error;
-
-  case SolutionKind::Solved:
-    result = SolutionKind::Solved;
-    break;
-
-  case SolutionKind::Unsolved:
-    result = SolutionKind::Unsolved;
-    break;
-  }
-
-  return result;
+                       ConstraintLocator::FunctionResult));
 }
 
 ConstraintSystem::SolutionKind
@@ -1167,17 +1111,22 @@ static bool isArrayDictionarySetOrString(const ASTContext &ctx, Type type) {
   return false;
 }
 
-/// Return the number of elements of parameter tuple type 'tupleTy' that must
-/// be matched to arguments, as opposed to being varargs or having default
-/// values.
-static unsigned tupleTypeRequiredArgCount(TupleType *tupleTy) {
-  auto argIsRequired = [&](const TupleTypeElt &elt) {
-    return !elt.isVararg() &&
-           elt.getDefaultArgKind() == DefaultArgumentKind::None;
-  };
-  return std::count_if(
-    tupleTy->getElements().begin(), tupleTy->getElements().end(),
-    argIsRequired);
+/// Given that 'tupleTy' is the argument type of a function that's being
+/// invoked with a single unlabeled argument, return the type of the parameter
+/// that matches that argument, or the null type if such a match is impossible.
+static Type getTupleElementTypeForSingleArgument(TupleType *tupleTy) {
+  Type result;
+  for (auto &param : tupleTy->getElements()) {
+    bool mustClaimArg = !param.isVararg() &&
+                        param.getDefaultArgKind() == DefaultArgumentKind::None;
+    bool canClaimArg = !param.hasName();
+    if (!result && canClaimArg) {
+      result = param.isVararg() ? param.getVarargBaseTy() : param.getType();
+    } else if (mustClaimArg) {
+      return Type();
+    }
+  }
+  return result;
 }
 
 ConstraintSystem::SolutionKind
@@ -1256,31 +1205,19 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
 
         // If the left-hand type variable cannot bind to an lvalue,
         // but we still have an lvalue, fail.
-        if (!typeVar1->getImpl().canBindToLValue()) {
-          if (type2->isLValueType()) {
-            if (shouldRecordFailures()) {
-              recordFailure(getConstraintLocator(locator),
-                            Failure::IsForbiddenLValue, type1, type2);
-            }
-            return SolutionKind::Error;
-          }
+        if (!typeVar1->getImpl().canBindToLValue() &&
+            type2->isLValueType())
+          return SolutionKind::Error;
 
-          // Okay. Bind below.
-        }
+        // Okay. Bind below.
 
         // Check whether the type variable must be bound to a materializable
         // type.
         if (typeVar1->getImpl().mustBeMaterializable()) {
-          if (!type2->isMaterializable()) {
-            if (shouldRecordFailures()) {
-              // TODO: customize error message for closure vs. generic param
-              recordFailure(getConstraintLocator(locator),  
-                            Failure::IsNotMaterializable, type2);
-            }
+          if (!type2->isMaterializable())
             return SolutionKind::Error;
-          } else {
-            setMustBeMaterializableRecursive(type2);
-          }
+
+          setMustBeMaterializableRecursive(type2);
         }
 
         // A constraint that binds any pointer to a void pointer is
@@ -1307,14 +1244,9 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
       if (wantRvalue)
         type1 = type1->getRValueType();
 
-      if (!typeVar2->getImpl().canBindToLValue()) {
-        if (type1->isLValueType()) {
-          if (shouldRecordFailures()) {
-            recordFailure(getConstraintLocator(locator),
-                          Failure::IsForbiddenLValue, type1, type2);
-          }
-          return SolutionKind::Error;
-        }
+      if (!typeVar2->getImpl().canBindToLValue() &&
+          type1->isLValueType()) {
+        return SolutionKind::Error;
         
         // Okay. Bind below.
       }
@@ -1338,6 +1270,12 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
           assignFixedType(typeVar1, type2);
         }
         return SolutionKind::Solved;
+      } else if (typeVar1 && typeVar2) {
+        auto rep1 = getRepresentative(typeVar1);
+        auto rep2 = getRepresentative(typeVar2);
+        if (rep1 == rep2) {
+          return SolutionKind::Solved;
+        }
       }
       return SolutionKind::Unsolved;
     }
@@ -1354,28 +1292,29 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
     case TypeMatchKind::ArgumentTupleConversion:
       if (typeVar1 &&
           !typeVar1->getImpl().literalConformanceProto &&
-          kind == TypeMatchKind::ArgumentTupleConversion &&
           (flags & TMF_GenerateConstraints) &&
-          dyn_cast<ParenType>(type1.getPointer())) {
+          isa<ParenType>(type1.getPointer())) {
         
-        auto tupleTy = type2->getAs<TupleType>();
-        
-        if (tupleTy &&
-            !tupleTy->getElements().empty() &&
-            (tupleTy->hasAnyDefaultValues() ||
-             tupleTy->getElement(0).isVararg()) &&
-            !tupleTy->getElement(0).hasName() &&
-            tupleTypeRequiredArgCount(tupleTy) <= 1) {
-              
-          // Look through vararg types, if necessary.
-          auto tupleElt = tupleTy->getElement(0);
-          auto tupleEltTy = tupleElt.isVararg() ?
-                              tupleElt.getVarargBaseTy() : tupleElt.getType();
-          
-          addConstraint(getConstraintKind(kind),
-                        typeVar1,
-                        tupleEltTy,
-                        getConstraintLocator(locator));
+        if (auto tupleTy = type2->getAs<TupleType>()) {
+          if (auto tupleEltTy = getTupleElementTypeForSingleArgument(tupleTy)) {
+            addConstraint(getConstraintKind(kind),
+                          typeVar1,
+                          tupleEltTy,
+                          getConstraintLocator(locator));
+            return SolutionKind::Solved;
+          }
+        }
+
+      }
+      SWIFT_FALLTHROUGH;
+
+    case TypeMatchKind::Conversion:
+      if (typeVar1 && typeVar2) {
+        auto rep1 = getRepresentative(typeVar1);
+        auto rep2 = getRepresentative(typeVar2);
+        if (rep1 == rep2) {
+          // We already merged these two types, so this constraint is
+          // trivially solved.
           return SolutionKind::Solved;
         }
       }
@@ -1383,7 +1322,6 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
 
     case TypeMatchKind::ConformsTo:
     case TypeMatchKind::Subtype:
-    case TypeMatchKind::Conversion:
     case TypeMatchKind::ExplicitConversion:
     case TypeMatchKind::ArgumentConversion:
     case TypeMatchKind::OperatorArgumentTupleConversion:
@@ -1556,11 +1494,8 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
       break;
 
     case TypeKind::LValue:
-      if (kind == TypeMatchKind::BindParamType) {
-        recordFailure(getConstraintLocator(locator),
-                      Failure::IsForbiddenLValue, type1, type2);
+      if (kind == TypeMatchKind::BindParamType)
         return SolutionKind::Error;
-      }
       return matchTypes(cast<LValueType>(desugar1)->getObjectType(),
                         cast<LValueType>(desugar2)->getObjectType(),
                         TypeMatchKind::SameType, subFlags,
@@ -1570,12 +1505,9 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
     case TypeKind::InOut:
       // If the RHS is an inout type, the LHS must be an @lvalue type.
       if (kind == TypeMatchKind::BindParamType ||
-          kind >= TypeMatchKind::OperatorArgumentConversion) {
-        if (shouldRecordFailures())
-          recordFailure(getConstraintLocator(locator),
-                        Failure::IsForbiddenLValue, type1, type2);
+          kind >= TypeMatchKind::OperatorArgumentConversion)
         return SolutionKind::Error;
-      }
+      
       return matchTypes(cast<InOutType>(desugar1)->getObjectType(),
                         cast<InOutType>(desugar2)->getObjectType(),
                         TypeMatchKind::SameType, subFlags,
@@ -1621,12 +1553,16 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
       // containing a single element if the scalar type is a subtype of
       // the type of that tuple's element.
       //
-      // A scalar type can be converted to a tuple so long as there is at
-      // most one non-defaulted element.
+      // A scalar type can be converted to an argument tuple so long as
+      // there is at most one non-defaulted element.
+      // For non-argument tuples, we can do the same conversion but not
+      // to a tuple with varargs.
       if ((tuple2->getNumElements() == 1 &&
            !tuple2->getElement(0).isVararg()) ||
           (kind >= TypeMatchKind::Conversion &&
-           tuple2->getElementForScalarInit() >= 0)) {
+           tuple2->getElementForScalarInit() >= 0 &&
+           (isArgumentTupleConversion ||
+            !tuple2->getVarArgsBaseType()))) {
         conversionsOrFixes.push_back(
           ConversionRestrictionKind::ScalarToTuple);
 
@@ -1730,8 +1666,9 @@ ConstraintSystem::matchTypes(Type type1, Type type2, TypeMatchKind kind,
 
   if (concrete && kind >= TypeMatchKind::Conversion) {
     // An lvalue of type T1 can be converted to a value of type T2 so long as
-    // T1 is convertible to T2 (by loading the value).
-    if (type1->is<LValueType>())
+    // T1 is convertible to T2 (by loading the value).  Note that we cannot get
+    // a value of inout type as an lvalue though.
+    if (type1->is<LValueType>() && !type2->is<InOutType>())
       conversionsOrFixes.push_back(
         ConversionRestrictionKind::LValueToRValue);
 
@@ -2230,14 +2167,8 @@ ConstraintSystem::simplifyConstructionConstraint(Type valueType,
   if (isa<AbstractFunctionDecl>(DC))
     lookupOptions |= NameLookupFlags::KnownPrivate;
   auto ctors = TC.lookupConstructors(DC, valueType, lookupOptions);
-  if (!ctors) {
-    // If we are supposed to record failures, do so.
-    if (shouldRecordFailures()) {
-      recordFailure(locator, Failure::NoPublicInitializers, valueType);
-    }
-    
+  if (!ctors)
     return SolutionKind::Error;
-  }
 
   auto &context = getASTContext();
   auto name = context.Id_init;
@@ -2312,12 +2243,30 @@ ConstraintSystem::SolutionKind ConstraintSystem::simplifyConformsToConstraint(
     llvm_unreachable("bad constraint kind");
   }
   
-  if (!type->getAnyOptionalObjectType().isNull() &&
-      protocol->isSpecificProtocol(KnownProtocolKind::BooleanType)) {
-    Fixes.push_back({FixKind::OptionalToBoolean,
-      getConstraintLocator(locator)});
-    
-    return SolutionKind::Solved;
+  if (!shouldAttemptFixes())
+    return SolutionKind::Error;
+
+  // See if there's anything we can do to fix the conformance:
+  OptionalTypeKind optionalKind;
+  if (auto optionalObjectType = type->getAnyOptionalObjectType(optionalKind)) {
+    if (protocol->isSpecificProtocol(KnownProtocolKind::BooleanType)) {
+      // Optionals don't conform to BooleanType; suggest '!= nil'.
+      if (recordFix(FixKind::OptionalToBoolean, getConstraintLocator(locator)))
+        return SolutionKind::Error;
+      return SolutionKind::Solved;
+    } else if (optionalKind == OTK_Optional) {
+      // The underlying type of an optional may conform to the protocol if the
+      // optional doesn't; suggest forcing if that's the case.
+      auto result = simplifyConformsToConstraint(
+        optionalObjectType, protocol, kind,
+        locator.withPathElement(LocatorPathElt::getGenericArgument(0)), flags);
+      if (result == SolutionKind::Solved) {
+        if (recordFix(FixKind::ForceOptional, getConstraintLocator(locator))) {
+          return SolutionKind::Error;
+        }
+      }
+      return result;
+    }
   }
   
   // There's nothing more we can do; fail.
@@ -2572,7 +2521,7 @@ static bool isUnavailableInExistential(TypeChecker &tc, ValueDecl *decl) {
 
     // Allow functions to return Self, but not have Self anywhere in
     // their argument types.
-    for (unsigned i = 1, n = afd->getNumParamPatterns(); i != n; ++i) {
+    for (unsigned i = 1, n = afd->getNumParameterLists(); i != n; ++i) {
       // Check whether the input type contains Self anywhere.
       auto fnType = type->castTo<AnyFunctionType>();
       if (containsProtocolSelf(fnType->getInput()))
@@ -2619,26 +2568,6 @@ ConstraintSystem::simplifyOptionalObjectConstraint(const Constraint &constraint)
                 constraint.getLocator());
   
   return SolutionKind::Solved;
-}
-
-/// If the given type conforms to the RawRepresentable protocol,
-/// return its underlying raw type.
-static Type getRawRepresentableValueType(TypeChecker &tc, DeclContext *dc, 
-                                         Type type) {
-  auto proto = tc.Context.getProtocol(KnownProtocolKind::RawRepresentable);
-  if (!proto)
-    return nullptr;
-
-  if (type->hasTypeVariable())
-    return nullptr;
-
-  ProtocolConformance *conformance = nullptr;
-  if (!tc.conformsToProtocol(type, proto, dc,
-                             ConformanceCheckFlags::InExpression, &conformance))
-    return nullptr;
-
-  return tc.getWitnessType(type, proto, conformance, tc.Context.Id_RawValue,
-                           diag::broken_raw_representable_requirement);
 }
 
 /// Retrieve the argument labels that are provided for a member
@@ -2694,10 +2623,14 @@ getArgumentLabels(ConstraintSystem &cs, ConstraintLocatorBuilder locator) {
 /// perform a lookup into the specified base type to find a candidate list.
 /// The list returned includes the viable candidates as well as the unviable
 /// ones (along with reasons why they aren't viable).
+///
+/// If includeInaccessibleMembers is set to true, this burns compile time to
+/// try to identify and classify inaccessible members that may be being
+/// referenced.
 MemberLookupResult ConstraintSystem::
-performMemberLookup(ConstraintKind constraintKind,
-                    DeclName memberName, Type baseTy,
-                    ConstraintLocator *memberLocator) {
+performMemberLookup(ConstraintKind constraintKind, DeclName memberName,
+                    Type baseTy, ConstraintLocator *memberLocator,
+                    bool includeInaccessibleMembers) {
   Type baseObjTy = baseTy->getRValueType();
 
   // Dig out the instance type and figure out what members of the instance type
@@ -2828,6 +2761,12 @@ performMemberLookup(ConstraintKind constraintKind,
     NameLookupOptions lookupOptions = defaultConstructorLookupOptions;
     if (isa<AbstractFunctionDecl>(DC))
       lookupOptions |= NameLookupFlags::KnownPrivate;
+    
+    // If we're doing a lookup for diagnostics, include inaccessible members,
+    // the diagnostics machinery will sort it out.
+    if (includeInaccessibleMembers)
+      lookupOptions |= NameLookupFlags::IgnoreAccessibility;
+
     LookupResult ctors = TC.lookupConstructors(DC, baseObjTy, lookupOptions);
     if (!ctors)
       return result;    // No result.
@@ -2927,6 +2866,12 @@ performMemberLookup(ConstraintKind constraintKind,
     NameLookupOptions lookupOptions = defaultMemberTypeLookupOptions;
     if (isa<AbstractFunctionDecl>(DC))
       lookupOptions |= NameLookupFlags::KnownPrivate;
+    
+    // If we're doing a lookup for diagnostics, include inaccessible members,
+    // the diagnostics machinery will sort it out.
+    if (includeInaccessibleMembers)
+      lookupOptions |= NameLookupFlags::IgnoreAccessibility;
+    
     auto lookup = TC.lookupMemberType(DC, baseObjTy, memberName.getBaseName(),
                                       lookupOptions);
     // Form the overload set.
@@ -3119,6 +3064,33 @@ retry_after_fail:
     goto retry_after_fail;
   }
 
+  // If we have no viable or unviable candidates, and we're generating,
+  // diagnostics, rerun the query with inaccessible members included, so we can
+  // include them in the unviable candidates list.
+  if (result.ViableCandidates.empty() && result.UnviableCandidates.empty() &&
+      includeInaccessibleMembers) {
+    NameLookupOptions lookupOptions = defaultMemberLookupOptions;
+    
+    // Ignore accessibility so we get candidates that might have been missed
+    // before.
+    lookupOptions |= NameLookupFlags::IgnoreAccessibility;
+    // This is only used for diagnostics, so always use KnownPrivate.
+    lookupOptions |= NameLookupFlags::KnownPrivate;
+    
+    auto lookup = TC.lookupMember(DC, baseObjTy->getCanonicalType(),
+                                  memberName, lookupOptions);
+    for (auto cand : lookup) {
+      // If the result is invalid, skip it.
+      TC.validateDecl(cand, true);
+      if (cand->isInvalid()) {
+        result.markErrorAlreadyDiagnosed();
+        return result;
+      }
+      
+      result.addUnviable(cand, MemberLookupResult::UR_Inaccessible);
+    }
+  }
+  
   return result;
 }
 
@@ -3144,9 +3116,9 @@ ConstraintSystem::simplifyMemberConstraint(const Constraint &constraint) {
 
   MemberLookupResult result =
     performMemberLookup(constraint.getKind(), constraint.getMember(),
-                        baseTy, constraint.getLocator());
+                        baseTy, constraint.getLocator(),
+                        /*includeInaccessibleMembers*/false);
   
-  DeclName name = constraint.getMember();
   Type memberTy = constraint.getSecondType();
 
   switch (result.OverallResult) {
@@ -3180,11 +3152,8 @@ ConstraintSystem::simplifyMemberConstraint(const Constraint &constraint) {
     // If the base type was an optional, try to look through it.
     if (shouldAttemptFixes() && baseObjTy->getOptionalObjectType()) {
       // Note the fix.
-      increaseScore(SK_Fix);
-      if (worseThanBestSolution())
+      if (recordFix(FixKind::ForceOptional, constraint.getLocator()))
         return SolutionKind::Error;
-      
-      Fixes.push_back({FixKind::ForceOptional, constraint.getLocator()});
       
       // Look through one level of optional.
       addConstraint(Constraint::create(*this, ConstraintKind::TypeMember,
@@ -3203,80 +3172,12 @@ ConstraintSystem::simplifyMemberConstraint(const Constraint &constraint) {
     instanceTy = MTT->getInstanceType();
   
   // Value member lookup has some hacks too.
-  Type rawValueType;
-  if (shouldAttemptFixes() && name == TC.Context.Id_fromRaw &&
-      (rawValueType = getRawRepresentableValueType(TC, DC, instanceTy))) {
-    // Replace a reference to ".fromRaw" with a reference to init(rawValue:).
-    // FIXME: This is temporary.
-    
-    // Record this fix.
-    increaseScore(SK_Fix);
-    if (worseThanBestSolution())
-      return SolutionKind::Error;
-    
-    auto locator = constraint.getLocator();
-    Fixes.push_back({FixKind::FromRawToInit,getConstraintLocator(locator)});
-    
-    // Form the type that "fromRaw" would have had and bind the
-    // member type to it.
-    Type fromRawType = FunctionType::get(ParenType::get(TC.Context,
-                                                        rawValueType),
-                                         OptionalType::get(instanceTy));
-    addConstraint(ConstraintKind::Bind, memberTy, fromRawType, locator);
-    
-    return SolutionKind::Solved;
-  }
-  
-  if (shouldAttemptFixes() && name == TC.Context.Id_toRaw &&
-      (rawValueType = getRawRepresentableValueType(TC, DC, instanceTy))) {
-    // Replace a call to "toRaw" with a reference to rawValue.
-    // FIXME: This is temporary.
-    
-    // Record this fix.
-    increaseScore(SK_Fix);
-    if (worseThanBestSolution())
-      return SolutionKind::Error;
-    
-    auto locator = constraint.getLocator();
-    Fixes.push_back({FixKind::ToRawToRawValue,getConstraintLocator(locator)});
-    
-    // Form the type that "toRaw" would have had and bind the member
-    // type to it.
-    Type toRawType = FunctionType::get(TupleType::getEmpty(TC.Context),
-                                       rawValueType);
-    addConstraint(ConstraintKind::Bind, memberTy, toRawType, locator);
-    
-    return SolutionKind::Solved;
-  }
-  
-  if (shouldAttemptFixes() && name.isSimpleName("allZeros") &&
-      (rawValueType = getRawRepresentableValueType(TC, DC, instanceTy))) {
-    // Replace a reference to "X.allZeros" with a reference to X().
-    // FIXME: This is temporary.
-    
-    // Record this fix.
-    increaseScore(SK_Fix);
-    if (worseThanBestSolution())
-      return SolutionKind::Error;
-    
-    auto locator = constraint.getLocator();
-    Fixes.push_back({FixKind::AllZerosToInit,getConstraintLocator(locator)});
-    
-    // Form the type that "allZeros" would have had and bind the
-    // member type to it.
-    addConstraint(ConstraintKind::Bind, memberTy, rawValueType, locator);
-    return SolutionKind::Solved;
-  }
-  
   if (shouldAttemptFixes() && baseObjTy->getOptionalObjectType()) {
     // If the base type was an optional, look through it.
     
     // Note the fix.
-    increaseScore(SK_Fix);
-    if (worseThanBestSolution())
+    if (recordFix(FixKind::ForceOptional, constraint.getLocator()))
       return SolutionKind::Error;
-    
-    Fixes.push_back({FixKind::ForceOptional, constraint.getLocator()});
     
     // Look through one level of optional.
     addValueMemberConstraint(baseObjTy->getOptionalObjectType(),
@@ -3356,11 +3257,6 @@ ConstraintSystem::simplifyBridgedToObjectiveCConstraint(
     increaseScore(SK_UserConversion);
     return SolutionKind::Solved;
   }
-  
-  // Record this failure.
-  recordFailure(constraint.getLocator(),
-                Failure::IsNotBridgedToObjectiveC,
-                baseTy);
   return SolutionKind::Error;
 }
 
@@ -3518,38 +3414,17 @@ retry:
                                           getConstraintLocator(outerLocator));
   }
 
+  if (!shouldAttemptFixes())
+    return SolutionKind::Error;
+
   // If we're coming from an optional type, unwrap the optional and try again.
   if (auto objectType2 = desugar2->getOptionalObjectType()) {
-    // Increase the score before we attempt a fix.
-    increaseScore(SK_Fix);
-    if (worseThanBestSolution())
+    if (recordFix(FixKind::ForceOptional, getConstraintLocator(locator)))
       return SolutionKind::Error;
-
-    Fixes.push_back({FixKind::ForceOptional,getConstraintLocator(locator)});
 
     type2 = objectType2;
     desugar2 = type2->getDesugaredType();
     goto retry;
-  }
-
-  // If this is a '()' call, drop the call.
-  if (shouldAttemptFixes() &&
-      func1->getInput()->isEqual(TupleType::getEmpty(getASTContext()))) {
-    // Increase the score before we attempt a fix.
-    increaseScore(SK_Fix);
-    if (worseThanBestSolution())
-      return SolutionKind::Error;
-
-    // We don't bother with a 'None' case, because at this point we won't get
-    // a better diagnostic from that case.
-    Fixes.push_back({FixKind::RemoveNullaryCall,
-                     getConstraintLocator(locator)});
-
-    return matchTypes(func1->getResult(), type2,
-                      TypeMatchKind::BindType,
-                      flags | TMF_ApplyingFix | TMF_GenerateConstraints,
-                      locator.withPathElement(
-                        ConstraintLocator::FunctionResult));
   }
 
   return SolutionKind::Error;
@@ -3767,7 +3642,7 @@ ConstraintSystem::simplifyRestrictedConstraint(ConversionRestrictionKind restric
   // We don't want to allow this after user-defined conversions:
   //   - it gets really complex for users to understand why there's
   //     a dereference in their code
-  //   - it would allow nil to be coerceable to a non-optional type
+  //   - it would allow nil to be coercible to a non-optional type
   // Fortunately, user-defined conversions only allow subtype
   // conversions on their results.
   case ConversionRestrictionKind::ForceUnchecked: {
@@ -4273,35 +4148,29 @@ bool ConstraintSystem::recordFix(Fix fix, ConstraintLocatorBuilder locator) {
 
   // Record the fix.
   if (fix.getKind() != FixKind::None) {
-    Fixes.push_back({fix, getConstraintLocator(locator)});
-
     // Increase the score. If this would make the current solution worse than
     // the best solution we've seen already, stop now.
     increaseScore(SK_Fix);
     if (worseThanBestSolution())
       return true;
+
+    Fixes.push_back({fix, getConstraintLocator(locator)});
   }
   return false;
 }
 
 ConstraintSystem::SolutionKind
-ConstraintSystem::simplifyFixConstraint(Fix fix,
-                                        Type type1, Type type2,
-                                        TypeMatchKind matchKind,
-                                        unsigned flags,
+ConstraintSystem::simplifyFixConstraint(Fix fix, Type type1, Type type2,
+                                        TypeMatchKind matchKind, unsigned flags,
                                         ConstraintLocatorBuilder locator) {
-  if (recordFix(fix, locator)) {
+  if (recordFix(fix, locator))
     return SolutionKind::Error;
-  }
 
   // Try with the fix.
   unsigned subFlags = flags | TMF_ApplyingFix | TMF_GenerateConstraints;
   switch (fix.getKind()) {
   case FixKind::None:
     return matchTypes(type1, type2, matchKind, subFlags, locator);
-
-  case FixKind::RemoveNullaryCall:
-    llvm_unreachable("Always applied directly");
 
   case FixKind::ForceOptional:
     // Assume that '!' was applied to the first type.
@@ -4318,32 +4187,11 @@ ConstraintSystem::simplifyFixConstraint(Fix fix,
     return matchTypes(InOutType::get(type1->getRValueType()), type2,
                       matchKind, subFlags, locator);
 
-  case FixKind::TupleToScalar:
-    return matchTypes(type1->castTo<TupleType>()->getElementType(0),
-                      type2, matchKind, subFlags, 
-                      locator.withPathElement(
-                        LocatorPathElt::getTupleElement(0)));
-
-  case FixKind::ScalarToTuple: {
-    auto tuple2 = type2->castTo<TupleType>();
-    int scalarFieldIdx = tuple2->getElementForScalarInit();
-    assert(scalarFieldIdx >= 0 && "Invalid tuple for scalar-to-tuple");
-    const auto &elt = tuple2->getElement(scalarFieldIdx);
-    auto scalarFieldTy = elt.isVararg()? elt.getVarargBaseTy() : elt.getType();
-    return matchTypes(type1, scalarFieldTy, matchKind, subFlags,
-                      locator.withPathElement(
-                        ConstraintLocator::ScalarToTuple));
-  }
-
-  case FixKind::RelabelCallTuple:
   case FixKind::OptionalToBoolean:
     // The actual semantics are handled elsewhere.
     return SolutionKind::Solved;
 
-  case FixKind::FromRawToInit:
-  case FixKind::ToRawToRawValue:
   case FixKind::CoerceToCheckedCast:
-  case FixKind::AllZerosToInit:
     llvm_unreachable("handled elsewhere");
   }
 }

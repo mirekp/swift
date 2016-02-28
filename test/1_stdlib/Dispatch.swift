@@ -7,6 +7,14 @@ import Dispatch
 import Foundation
 import StdlibUnittest
 
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
+
 defer { runAllTests() }
 
 var DispatchAPI = TestSuite("DispatchAPI")
@@ -32,7 +40,7 @@ DispatchAPI.test("OS_OBJECT support") {
 DispatchAPI.test("dispatch_block_t conversions") {
   var counter = 0
   let closure = { () -> Void in
-    counter++
+    counter += 1
   }
 
   let block = closure as dispatch_block_t
@@ -59,7 +67,7 @@ if #available(OSX 10.10, iOS 8.0, *) {
     var counter = 0
 
     let block = dispatch_block_create(dispatch_block_flags_t(0)) {
-      counter++
+      counter += 1
     }
     block()
     expectEqual(1, counter)

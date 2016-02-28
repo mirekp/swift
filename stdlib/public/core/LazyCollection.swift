@@ -1,8 +1,8 @@
-//===--- LazyCollection.swift ---------------------------------*- swift -*-===//
+//===--- LazyCollection.swift ---------------------------------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -27,7 +27,7 @@ public protocol LazyCollectionType
   /// possibly with a simpler type.
   ///
   /// - See also: `elements`
-  typealias Elements: CollectionType = Self
+  associatedtype Elements: CollectionType = Self
 
 }
 
@@ -71,12 +71,12 @@ public struct LazyCollection<Base : CollectionType>
 /// optimizations it might implement.
 extension LazyCollection : SequenceType {
   
-  /// Return a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> Base.Generator { return _base.generate() }
   
-  /// Return a value less than or equal to the number of elements in
+  /// Returns a value less than or equal to the number of elements in
   /// `self`, **nondestructively**.
   ///
   /// - Complexity: O(N).

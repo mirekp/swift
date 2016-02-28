@@ -25,7 +25,7 @@
 
 // CHECK: {{.*}}DocCommentAsXML=[<Function file="{{.*}}" line="{{.*}}" column="{{.*}}"><Name>note()</Name><USR>s:F14swift_ide_test4noteFT_T_</USR><Declaration>func note()</Declaration><Discussion><Note><Para>This function is very hip and exciting.</Para></Note></Discussion></Function>]
 
-// CHECK: {{.*}}DocCommentAsXML=[<Function file="{{.*}}" line="{{.*}}" column="{{.*}}"><Name>postcondition(_:)</Name><USR>s:F14swift_ide_test13postconditionFRSiT_</USR><Declaration>func postcondition(inout x: Int)</Declaration><Discussion><Postcondition><Para>x is unchanged</Para></Postcondition></Discussion></Function>]
+// CHECK: {{.*}}DocCommentAsXML=[<Function file="{{.*}}" line="{{.*}}" column="{{.*}}"><Name>postcondition(_:)</Name><USR>s:F14swift_ide_test13postconditionFRSiT_</USR><Declaration>func postcondition(x: inout Int)</Declaration><Discussion><Postcondition><Para>x is unchanged</Para></Postcondition></Discussion></Function>]
 
 // CHECK: {{.*}}DocCommentAsXML=none
 
@@ -59,4 +59,3 @@
 // CHECK: {{.*}}DocCommentAsXML=[<Function file="{{.*}}" line="{{.*}}" column="{{.*}}"><Name>urlWithQueryString()</Name><USR>s:F14swift_ide_test18urlWithQueryStringFT_T_</USR><Declaration>func urlWithQueryString()</Declaration><Abstract><Para>Brief.</Para></Abstract><Discussion><Para>Test <Link href="http://apple.com?a=1&amp;b=1&amp;c=abc">a link</Link></Para></Discussion></Function>]
 
 // CHECK: {{.*}}DocCommentAsXML=[<Function file="{{.*}}" line="{{.*}}" column="{{.*}}"><Name>imageWithAmpersandsInTitleAndAlt()</Name><USR>s:F14swift_ide_test32imageWithAmpersandsInTitleAndAltFT_T_</USR><Declaration>func imageWithAmpersandsInTitleAndAlt()</Declaration><Abstract><Para>Brief.</Para></Abstract><Discussion><Para><rawHTML><![CDATA[<img src="http://apple.com" title="&&&" alt="&&&"\>]]></rawHTML></Para></Discussion></Function>]
-

@@ -6,7 +6,7 @@ extension SequenceType {
   final var myCount: Int {
     var result = 0
     for _ in self {
-      ++result
+      result += 1
     }
     return result
   }
@@ -220,7 +220,7 @@ class C : P {
   func getValue() -> Bool { return theValue }
 }
 
-func toggle(inout value: Bool) {
+func toggle(value: inout Bool) {
   value = !value
 }
 

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -28,7 +28,7 @@ cFuncSuffix2 = {32: 'f', 64: 'd', 80: 'ld'}
 
 }%
 
-/// Return true iff isspace(u) would return nonzero when the current
+/// Returns `true` iff isspace(u) would return nonzero when the current
 /// locale is the C locale.
 @warn_unused_result
 internal func _isspace_clocale(u: UTF16.CodeUnit) -> Bool {

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -23,7 +23,7 @@ public enum UnicodeDecodingResult {
   case EmptyInput
   case Error
 
-  /// Return true if `self` indicates no more unicode scalars are
+  /// Returns `true` if `self` indicates no more unicode scalars are
   /// available.
   @warn_unused_result
   public func isEmptyInput() -> Bool {
@@ -44,7 +44,7 @@ public protocol UnicodeCodecType {
 
   /// A type that can hold [code unit](http://www.unicode.org/glossary/#code_unit) values for this
   /// encoding.
-  typealias CodeUnit
+  associatedtype CodeUnit
 
   init()
 
@@ -59,10 +59,10 @@ public protocol UnicodeCodecType {
   /// Because of buffering, it is impossible to find the corresponding position
   /// in the generator for a given returned `UnicodeScalar` or an error.
   ///
-  /// - parameter next: A *generator* of code units to be decoded.
+  /// - parameter next: A generator of code units to be decoded.
   mutating func decode<
     G : GeneratorType where G.Element == CodeUnit
-  >(inout next: G) -> UnicodeDecodingResult
+  >(next: inout G) -> UnicodeDecodingResult
 
   /// Encode a `UnicodeScalar` as a series of `CodeUnit`s by
   /// calling `output` on each `CodeUnit`.
@@ -79,7 +79,7 @@ public struct UTF8 : UnicodeCodecType {
   public init() {}
 
   /// Returns the number of expected trailing bytes for a given first byte: 0,
-  /// 1, 2 or 3.  If the first byte can not start a valid UTF-8 code unit
+  /// 1, 2 or 3.  If the first byte cannot start a valid UTF-8 code unit
   /// sequence, returns 4.
   @warn_unused_result
   public static func _numTrailingBytes(cu0: CodeUnit) -> UInt8 {
@@ -141,7 +141,7 @@ public struct UTF8 : UnicodeCodecType {
   /// buffer with a shift, and update flags with a single-bit right shift.
   var _lookaheadFlags: UInt8 = 0
 
-  /// Return `true` if the LSB bytes in `buffer` are well-formed UTF-8 code
+  /// Returns `true` if the LSB bytes in `buffer` are well-formed UTF-8 code
   /// unit sequence.
   @warn_unused_result
   static func _isValidUTF8Impl(buffer: UInt32, length: UInt8) -> Bool {
@@ -192,7 +192,7 @@ public struct UTF8 : UnicodeCodecType {
     }
   }
 
-  /// Return `true` if the LSB bytes in `buffer` are well-formed UTF-8 code
+  /// Returns `true` if the LSB bytes in `buffer` are well-formed UTF-8 code
   /// unit sequence.
   @warn_unused_result
   static func _isValidUTF8(buffer: UInt32, validBytes: UInt8) -> Bool {
@@ -332,10 +332,10 @@ public struct UTF8 : UnicodeCodecType {
   /// Because of buffering, it is impossible to find the corresponding position
   /// in the generator for a given returned `UnicodeScalar` or an error.
   ///
-  /// - parameter next: A *generator* of code units to be decoded.
+  /// - parameter next: A generator of code units to be decoded.
   public mutating func decode<
     G : GeneratorType where G.Element == CodeUnit
-  >(inout next: G) -> UnicodeDecodingResult {
+  >(next: inout G) -> UnicodeDecodingResult {
     // If the EOF flag is not set, fill the lookahead buffer from the input
     // generator.
     if _lookaheadFlags & 0b1111_0000 == 0 {
@@ -479,7 +479,7 @@ public struct UTF8 : UnicodeCodecType {
     put(buf3)
   }
 
-  /// Return `true` if `byte` is a continuation byte of the form
+  /// Returns `true` if `byte` is a continuation byte of the form
   /// `0b10xxxxxx`.
   @warn_unused_result
   public static func isContinuation(byte: CodeUnit) -> Bool {
@@ -518,10 +518,10 @@ public struct UTF16 : UnicodeCodecType {
   /// Because of buffering, it is impossible to find the corresponding position
   /// in the generator for a given returned `UnicodeScalar` or an error.
   ///
-  /// - parameter next: A *generator* of code units to be decoded.
+  /// - parameter next: A generator of code units to be decoded.
   public mutating func decode<
     G : GeneratorType where G.Element == CodeUnit
-  >(inout input: G) -> UnicodeDecodingResult {
+  >(input: inout G) -> UnicodeDecodingResult {
     if _lookaheadFlags & 0b01 != 0 {
       return .EmptyInput
     }
@@ -599,7 +599,7 @@ public struct UTF16 : UnicodeCodecType {
   /// units than required for this scalar.
   mutating func _decodeOne<
     G : GeneratorType where G.Element == CodeUnit
-  >(inout input: G) -> (UnicodeDecodingResult, Int) {
+  >(input: inout G) -> (UnicodeDecodingResult, Int) {
     let result = decode(&input)
     switch result {
     case .Result(let us):
@@ -653,16 +653,16 @@ public struct UTF32 : UnicodeCodecType {
   /// Because of buffering, it is impossible to find the corresponding position
   /// in the generator for a given returned `UnicodeScalar` or an error.
   ///
-  /// - parameter next: A *generator* of code units to be decoded.
+  /// - parameter next: A generator of code units to be decoded.
   public mutating func decode<
     G : GeneratorType where G.Element == CodeUnit
-  >(inout input: G) -> UnicodeDecodingResult {
+  >(input: inout G) -> UnicodeDecodingResult {
     return UTF32._decode(&input)
   }
 
   static func _decode<
     G : GeneratorType where G.Element == CodeUnit
-  >(inout input: G) -> UnicodeDecodingResult {
+  >(input: inout G) -> UnicodeDecodingResult {
     guard let x = input.next() else { return .EmptyInput }
     if _fastPath((x >> 11) != 0b1101_1 && x <= 0x10ffff) {
       return .Result(UnicodeScalar(x))
@@ -696,7 +696,6 @@ public func transcode<
   _ input: Input, _ output: (OutputEncoding.CodeUnit) -> Void,
   stopOnError: Bool
 ) -> Bool {
-
   var input = input
 
   // NB.  It is not possible to optimize this routine to a memcpy if
@@ -705,9 +704,8 @@ public func transcode<
 
   var inputDecoder = inputEncoding.init()
   var hadError = false
-  for var scalar = inputDecoder.decode(&input);
-          !scalar.isEmptyInput();
-          scalar = inputDecoder.decode(&input) {
+  var scalar = inputDecoder.decode(&input)
+  while !scalar.isEmptyInput() {
     switch scalar {
     case .Result(let us):
       OutputEncoding.encode(us, output: output)
@@ -721,6 +719,7 @@ public func transcode<
         hadError = true
       }
     }
+    scalar = inputDecoder.decode(&input)
   }
   return hadError
 }
@@ -749,7 +748,7 @@ internal func _transcodeSomeUTF16AsUTF8<
 
     if _fastPath(u <= 0x7f) {
       result |= UTF8Chunk(u) << shift
-      ++utf8Count
+      utf8Count += 1
     } else {
       var scalarUtf8Length: Int
       var r: UInt
@@ -859,13 +858,13 @@ extension UTF8.CodeUnit : _StringElementType {
 }
 
 extension UTF16 {
-  /// Return the number of code units required to encode `x`.
+  /// Returns the number of code units required to encode `x`.
   @warn_unused_result
   public static func width(x: UnicodeScalar) -> Int {
     return x.value <= 0xFFFF ? 1 : 2
   }
 
-  /// Return the high surrogate code unit of a [surrogate pair](http://www.unicode.org/glossary/#surrogate_pair) representing
+  /// Returns the high surrogate code unit of a [surrogate pair](http://www.unicode.org/glossary/#surrogate_pair) representing
   /// `x`.
   ///
   /// - Requires: `width(x) == 2`.
@@ -875,7 +874,7 @@ extension UTF16 {
     return UTF16.CodeUnit((x.value - 0x1_0000) >> (10 as UInt32)) + 0xD800
   }
 
-  /// Return the low surrogate code unit of a [surrogate pair](http://www.unicode.org/glossary/#surrogate_pair) representing
+  /// Returns the low surrogate code unit of a [surrogate pair](http://www.unicode.org/glossary/#surrogate_pair) representing
   /// `x`.
   ///
   /// - Requires: `width(x) == 2`.
@@ -947,7 +946,7 @@ extension UTF16 {
         break loop
       case .Error:
         if !repairIllFormedSequences {
-          return .None
+          return nil
         }
         isAscii = false
         count += width(UnicodeScalar(0xfffd))

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -20,11 +20,7 @@ public struct UnicodeScalar :
   var _value: UInt32
 
   /// A numeric representation of `self`.
-  public var value: UInt32 {
-    get {
-      return _value
-    }
-  }
+  public var value: UInt32 { return _value }
 
   @_transparent
   public init(_builtinUnicodeScalarLiteral value: Builtin.Int32) {
@@ -82,7 +78,7 @@ public struct UnicodeScalar :
     self = v
   }
 
-  /// Return a String representation of `self` .
+  /// Returns a String representation of `self` .
   ///
   /// - parameter forceASCII: If `true`, forces most values into a numeric
   ///   representation.
@@ -146,7 +142,7 @@ public struct UnicodeScalar :
     }
   }
 
-  /// Returns true if this is an ASCII character (code point 0 to 127
+  /// Returns `true` if this is an ASCII character (code point 0 to 127
   /// inclusive).
   @warn_unused_result
   public func isASCII() -> Bool {
@@ -159,7 +155,7 @@ public struct UnicodeScalar :
     return (self >= "A" && self <= "Z") || (self >= "a" && self <= "z")
   }
 
-  // FIXME: Is there an similar term of art in Unicode?
+  // FIXME: Is there a similar term of art in Unicode?
   @warn_unused_result
   public func _isASCIIDigit() -> Bool {
     return self >= "0" && self <= "9"
@@ -319,7 +315,7 @@ extension UnicodeScalar.UTF16View : CollectionType {
   }
 }
 
-/// Return c as a UTF8.CodeUnit.  Meant to be used as _ascii8("x").
+/// Returns c as a UTF8.CodeUnit.  Meant to be used as _ascii8("x").
 @warn_unused_result
 public // SPI(SwiftExperimental)
 func _ascii8(c: UnicodeScalar) -> UTF8.CodeUnit {
@@ -327,7 +323,7 @@ func _ascii8(c: UnicodeScalar) -> UTF8.CodeUnit {
   return UTF8.CodeUnit(c.value)
 }
 
-/// Return c as a UTF16.CodeUnit.  Meant to be used as _ascii16("x").
+/// Returns c as a UTF16.CodeUnit.  Meant to be used as _ascii16("x").
 @warn_unused_result
 public // SPI(SwiftExperimental)
 func _ascii16(c: UnicodeScalar) -> UTF16.CodeUnit {

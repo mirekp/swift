@@ -9,7 +9,7 @@ class MyCls : OtherClass {
   var anotherBar : Int = 42
   class var cbar : Int = 0
 
-  // CHECK:   <ifunc>func <name>foo(<param>arg1</param>: Int, <param><name>name</name></param>: String, <param><name>param</name> par</param>: String)</name> {
+  // CHECK:   <ifunc>func <name>foo(<param>arg1: Int</param>, <param><name>name</name>: String</param>, <param><name>param</name> par: String</param>)</name> {
   // CHECK:     var abc
   // CHECK:     <if>if <elem-condexpr>1</elem-condexpr> <brace>{
   // CHECK:       <call><name>foo</name>(<param>1</param>, <param><name>name</name>:"test"</param>, <param><name>param</name>:"test2"</param>)</call>
@@ -22,7 +22,7 @@ class MyCls : OtherClass {
     }
   }
 
-  // CHECK:   <ifunc><name>init (<param><name>x</name></param>: Int)</name></ifunc>
+  // CHECK:   <ifunc><name>init (<param><name>x</name>: Int</param>)</name></ifunc>
   init (x: Int)
 
   // CHECK:   <cfunc>class func <name>cfoo()</name></cfunc>
@@ -84,14 +84,14 @@ if var v = o, z = o where v > z {}
 // CHECK: <switch>switch <elem-expr>v</elem-expr> {
 // CHECK:   <case>case <elem-pattern>1</elem-pattern>: break;</case>
 // CHECK:   <case>case <elem-pattern>2</elem-pattern>, <elem-pattern>3</elem-pattern>: break;</case>
-// CHECK:   <case>case <elem-pattern><call><name>Foo</name>(<param>let x</param>, <param>let y</param>)</call> where x < y</elem-pattern>: break;</case>
+// CHECK:   <case>case <elem-pattern><call><name>Foo</name>(<param>var x</param>, <param>var y</param>)</call> where x < y</elem-pattern>: break;</case>
 // CHECK:   <case>case <elem-pattern>2 where <call><name>foo</name>()</call></elem-pattern>, <elem-pattern>3 where <call><name>bar</name>()</call></elem-pattern>: break;</case>
 // CHECK:   <case><elem-pattern>default</elem-pattern>: break;</case>
 // CHECK: }</switch>
 switch v {
   case 1: break;
   case 2, 3: break;
-  case Foo(let x, let y) where x < y: break;
+  case Foo(var x, var y) where x < y: break;
   case 2 where foo(), 3 where bar(): break;
   default: break;
 }
@@ -152,7 +152,7 @@ enum Rawness : Int {
   case Two = 2, Three = 3
 }
 
-// CHECK: <ffunc>func <name>rethrowFunc(<param>f</param>: () throws -> ())</name> rethrows {}</ffunc>
+// CHECK: <ffunc>func <name>rethrowFunc(<param>f: () throws -> ()</param>)</name> rethrows {}</ffunc>
 func rethrowFunc(f: () throws -> ()) rethrows {}
 
 class NestedPoundIf{

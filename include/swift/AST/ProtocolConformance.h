@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -18,9 +18,11 @@
 
 #include "swift/AST/ConcreteDeclRef.h"
 #include "swift/AST/Decl.h"
+#include "swift/AST/ProtocolConformanceRef.h"
 #include "swift/AST/Substitution.h"
 #include "swift/AST/Type.h"
 #include "swift/AST/Types.h"
+#include "swift/AST/TypeAlignments.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
@@ -35,6 +37,7 @@ class GenericParamList;
 class NormalProtocolConformance;
 class ProtocolConformance;
 class ModuleDecl;
+class SubstitutionIterator;
 enum class AllocationArena;
   
 /// \brief Type substitution mapping from substitutable types to their
@@ -87,16 +90,23 @@ enum class ProtocolConformanceState {
 ///
 /// ProtocolConformance is an abstract base class, implemented by subclasses
 /// for the various kinds of conformance (normal, specialized, inherited).
-class ProtocolConformance {
+class alignas(1 << DeclAlignInBits) ProtocolConformance {
   /// The kind of protocol conformance.
   ProtocolConformanceKind Kind;
 
-  /// \brief The type that conforms to the protocol.
+  /// \brief The type that conforms to the protocol, in the context of the
+  /// conformance definition.
   Type ConformingType;
+  
+  /// \brief The interface type that conforms to the protocol.
+  Type ConformingInterfaceType;
+  
 
 protected:
-  ProtocolConformance(ProtocolConformanceKind kind, Type conformingType)
-    : Kind(kind), ConformingType(conformingType) { }
+  ProtocolConformance(ProtocolConformanceKind kind, Type conformingType,
+                      Type conformingInterfaceType)
+    : Kind(kind), ConformingType(conformingType),
+      ConformingInterfaceType(conformingInterfaceType) { }
 
 public:
   /// Determine the kind of protocol conformance.
@@ -106,7 +116,7 @@ public:
   Type getType() const { return ConformingType; }
 
   /// Get the conforming interface type.
-  Type getInterfaceType() const;
+  Type getInterfaceType() const { return ConformingInterfaceType; }
   
   /// Get the protocol being conformed to.
   ProtocolDecl *getProtocol() const;
@@ -183,11 +193,18 @@ public:
   ConcreteDeclRef getWitness(ValueDecl *requirement, 
                              LazyResolver *resolver) const;
 
+private:
+  /// Determine whether we have a witness for the given requirement.
+  bool hasWitness(ValueDecl *requirement) const;
+
+public:
   /// Apply the given function object to each value witness within this
   /// protocol conformance.
   ///
   /// The function object should accept a \c ValueDecl* for the requirement
-  /// followed by the \c ConcreteDeclRef for the witness.
+  /// followed by the \c ConcreteDeclRef for the witness. Note that a generic
+  /// witness will only be specialized if the conformance came from the current
+  /// file.
   template<typename F>
   void forEachValueWitness(LazyResolver *resolver, F f) const {
     const ProtocolDecl *protocol = getProtocol();
@@ -201,6 +218,10 @@ public:
       if (auto *FD = dyn_cast<FuncDecl>(valueReq))
         if (FD->isAccessor())
           continue;
+
+      // If we don't have and cannot resolve witnesses, skip it.
+      if (!resolver && !hasWitness(valueReq))
+        continue;
 
       f(valueReq, getWitness(valueReq, resolver));
     }
@@ -252,10 +273,16 @@ public:
     return mem;
   }
   
-  /// Print a parsable and human-readable description of the identifying
+  /// Print a parseable and human-readable description of the identifying
   /// information of the protocol conformance.
   void printName(raw_ostream &os,
                  const PrintOptions &PO = PrintOptions()) const;
+  
+  /// True if the conformance is for a property behavior instantiation.
+  bool isBehaviorConformance() const;
+  
+  /// Get the property declaration for a behavior conformance, if this is one.
+  AbstractStorageDecl *getBehaviorDecl() const;
   
   void dump() const;
 
@@ -286,7 +313,8 @@ private:
 /// providing the witnesses \c A.foo and \c B<T>.foo, respectively, for the
 /// requirement \c foo.
 class NormalProtocolConformance : public ProtocolConformance,
-                                  public llvm::FoldingSetNode {
+                                  public llvm::FoldingSetNode
+{
   /// \brief The protocol being conformed to and its current state.
   llvm::PointerIntPair<ProtocolDecl *, 2, ProtocolConformanceState>
     ProtocolAndState;
@@ -294,11 +322,14 @@ class NormalProtocolConformance : public ProtocolConformance,
   /// The location of this protocol conformance in the source.
   SourceLoc Loc;
 
+  using Context = llvm::PointerUnion<DeclContext *, AbstractStorageDecl *>;
+
   /// The declaration context containing the ExtensionDecl or
-  /// NominalTypeDecl that declared the conformance.
+  /// NominalTypeDecl that declared the conformance, or the VarDecl whose
+  /// behavior this conformance represents.
   ///
   /// Also stores the "invalid" bit.
-  llvm::PointerIntPair<DeclContext *, 1, bool> DCAndInvalid;
+  llvm::PointerIntPair<Context, 1, bool> ContextAndInvalid;
 
   /// \brief The mapping of individual requirements in the protocol over to
   /// the declarations that satisfy those requirements.
@@ -324,8 +355,23 @@ class NormalProtocolConformance : public ProtocolConformance,
   NormalProtocolConformance(Type conformingType, ProtocolDecl *protocol,
                             SourceLoc loc, DeclContext *dc,
                             ProtocolConformanceState state)
-    : ProtocolConformance(ProtocolConformanceKind::Normal, conformingType),
-      ProtocolAndState(protocol, state), Loc(loc), DCAndInvalid(dc, false)
+    : ProtocolConformance(ProtocolConformanceKind::Normal, conformingType,
+                          // FIXME: interface type should be passed in
+                          dc->getDeclaredInterfaceType()),
+      ProtocolAndState(protocol, state), Loc(loc), ContextAndInvalid(dc, false)
+  {
+  }
+
+  NormalProtocolConformance(Type conformingType,
+                            Type conformingInterfaceType,
+                            ProtocolDecl *protocol,
+                            SourceLoc loc, AbstractStorageDecl *behaviorStorage,
+                            ProtocolConformanceState state)
+    : ProtocolConformance(ProtocolConformanceKind::Normal, conformingType,
+                          // FIXME: interface type should be passed in
+                          conformingInterfaceType),
+      ProtocolAndState(protocol, state), Loc(loc),
+      ContextAndInvalid(behaviorStorage, false)
   {
   }
 
@@ -340,7 +386,14 @@ public:
 
   /// Get the declaration context that contains the conforming extension or
   /// nominal type declaration.
-  DeclContext *getDeclContext() const { return DCAndInvalid.getPointer(); }
+  DeclContext *getDeclContext() const {
+    auto context = ContextAndInvalid.getPointer();
+    if (auto DC = context.dyn_cast<DeclContext *>()) {
+      return DC;
+    } else {
+      return context.get<AbstractStorageDecl *>()->getDeclContext();
+    }
+  }
 
   /// Retrieve the state of this conformance.
   ProtocolConformanceState getState() const {
@@ -353,11 +406,26 @@ public:
   }
 
   /// Determine whether this conformance is invalid.
-  bool isInvalid() const { return DCAndInvalid.getInt(); }
-
+  bool isInvalid() const {
+    return ContextAndInvalid.getInt();
+  }
+  
   /// Mark this conformance as invalid.
-  void setInvalid() { DCAndInvalid.setInt(true); }
+  void setInvalid() {
+    ContextAndInvalid.setInt(true);
+  }
 
+  /// True if the conformance describes a property behavior.
+  bool isBehaviorConformance() const {
+    return ContextAndInvalid.getPointer().is<AbstractStorageDecl *>();
+  }
+  
+  /// Return the declaration using the behavior for this conformance, or null
+  /// if this isn't a behavior conformance.
+  AbstractStorageDecl *getBehaviorDecl() const {
+    return ContextAndInvalid.getPointer().dyn_cast<AbstractStorageDecl *>();
+  }
+  
   /// Retrieve the type witness substitution and type decl (if one exists)
   /// for the given associated type.
   std::pair<const Substitution &, TypeDecl *>
@@ -376,6 +444,9 @@ public:
                       TypeDecl *typeDecl) const;
 
   /// Retrieve the value witness corresponding to the given requirement.
+  ///
+  /// Note that a generic witness will only be specialized if the conformance
+  /// came from the current file.
   ConcreteDeclRef getWitness(ValueDecl *requirement, 
                              LazyResolver *resolver) const;
 
@@ -448,7 +519,7 @@ public:
   }
 };
 
-/// Specalized protocol conformance, which projects a generic protocol
+/// Specialized protocol conformance, which projects a generic protocol
 /// conformance to one of the specializations of the generic type.
 ///
 /// For example:
@@ -495,6 +566,8 @@ public:
   ArrayRef<Substitution> getGenericSubstitutions() const {
     return GenericSubstitutions;
   }
+
+  SubstitutionIterator getGenericSubstitutionIterator() const;
 
   /// Get the protocol being conformed to.
   ProtocolDecl *getProtocol() const {
@@ -577,8 +650,9 @@ class InheritedProtocolConformance : public ProtocolConformance,
 
   InheritedProtocolConformance(Type conformingType,
                                ProtocolConformance *inheritedConformance)
-    : ProtocolConformance(ProtocolConformanceKind::Inherited,
-                          conformingType),
+    : ProtocolConformance(ProtocolConformanceKind::Inherited, conformingType,
+            // FIXME: interface type should be passed in
+            inheritedConformance->getDeclContext()->getDeclaredInterfaceType()),
       InheritedConformance(inheritedConformance)
   {
   }
@@ -652,6 +726,10 @@ public:
 
 inline bool ProtocolConformance::isInvalid() const {
   return getRootNormalConformance()->isInvalid();
+}
+
+inline bool ProtocolConformance::hasWitness(ValueDecl *requirement) const {
+  return getRootNormalConformance()->hasWitness(requirement);
 }
 
 } // end namespace swift

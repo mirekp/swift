@@ -46,7 +46,7 @@ func testAmbiguousStringComparisons(s: String) {
 func acceptsSequence<S : SequenceType>(sequence: S) {}
 
 func testStringIsNotASequence(s: String) {
-  acceptsSequence(s) // expected-error {{cannot invoke 'acceptsSequence' with an argument list of type '(String)'}} expected-note {{expected an argument list of type '(S)'}}
+  acceptsSequence(s) // expected-error {{argument type 'String' does not conform to expected type 'SequenceType'}}
 }
 
 func testStringDeprecation(hello: String) {
@@ -58,3 +58,21 @@ func testStringDeprecation(hello: String) {
 
 
 }
+
+// Positive and negative tests for String index types
+func acceptsForwardIndex<I: ForwardIndexType>(index: I) {}
+func acceptsBidirectionalIndex<I: BidirectionalIndexType>(index: I) {}
+func acceptsRandomAccessIndex<I: RandomAccessIndexType>(index: I) {}
+
+func testStringIndexTypes(s: String) {
+  acceptsForwardIndex(s.utf8.startIndex)
+  acceptsBidirectionalIndex(s.utf8.startIndex) // expected-error{{argument type 'String.UTF8View.Index' does not conform to expected type 'BidirectionalIndexType'}}
+  acceptsBidirectionalIndex(s.unicodeScalars.startIndex)
+  acceptsRandomAccessIndex(s.unicodeScalars.startIndex) // expected-error{{argument type 'String.UnicodeScalarView.Index' does not conform to expected type 'RandomAccessIndexType'}}
+  acceptsBidirectionalIndex(s.characters.startIndex)
+  acceptsRandomAccessIndex(s.characters.startIndex) // expected-error{{argument type 'String.CharacterView.Index' does not conform to expected type 'RandomAccessIndexType'}}
+  
+  // UTF16View.Index is random-access with Foundation, bidirectional without
+  acceptsRandomAccessIndex(s.utf16.startIndex)
+}
+

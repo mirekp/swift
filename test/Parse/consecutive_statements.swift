@@ -1,7 +1,7 @@
 // RUN: %target-parse-verify-swift
 
 func statement_starts() {
-  var f : Int-> ()
+  var f : Int -> ()
   f = { (x : Int) -> () in }
 
   f(0)
@@ -17,7 +17,7 @@ func statement_starts() {
 }
 
 // Within a function
-func test(inout i: Int, inout j: Int) {
+func test(i: inout Int, j: inout Int) {
   // Okay
   let q : Int; i = j; j = i; _ = q
 

@@ -256,7 +256,7 @@ Throwing an error
 -----------------
 
 The ``throw`` statement begins the propagation of an error.  It always
-take an argument, which can be any value that conforms to the
+takes an argument, which can be any value that conforms to the
 ``ErrorType`` protocol (described below).
 
 ::
@@ -578,7 +578,7 @@ of failability.
 
 One limitation of this approach is that we need to be able to reconstruct
 the selector to use when an overload of a method is introduced.  For this
-reason, the import is likely to be limited to methods where  the error
+reason, the import is likely to be limited to methods where the error
 parameter is the last one and the corresponding selector
 chunk is either ``error:`` or the first chunk (see below).  Empirically,
 this seems to do the right thing for all but two sets of APIs in the
@@ -680,7 +680,7 @@ can be overloaded on whether its argument closure throws; the
 overload that takes a throwing closures would itself throw.
 
 There is one minor usability problem here, though.  If the closure
-contains throwing expressions, those expression must be explicitly
+contains throwing expressions, those expressions must be explicitly
 marked within the closure with ``try``.  However, from the compiler's
 perspective, the call to ``autoreleasepool`` is also a call that
 can throw, and so it must also be marked with ``try``::

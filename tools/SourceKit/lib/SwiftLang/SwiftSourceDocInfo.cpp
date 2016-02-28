@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -26,6 +26,7 @@
 #include "swift/IDE/CommentConversion.h"
 #include "swift/IDE/Utils.h"
 #include "swift/Markup/XMLUtils.h"
+#include "swift/Sema/IDETypeChecking.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
@@ -54,9 +55,174 @@ private:
   }
 };
 
-static void printAnnotatedDeclaration(const ValueDecl *VD, raw_ostream &OS) {
+static StringRef getTagForDecl(const Decl *D, bool isRef) {
+  auto UID = SwiftLangSupport::getUIDForDecl(D, isRef);
+  static const char *prefix = "source.lang.swift.";
+  assert(UID.getName().startswith(prefix));
+  return UID.getName().drop_front(strlen(prefix));
+}
+
+static StringRef ExternalParamNameTag = "decl.var.parameter.name.external";
+static StringRef LocalParamNameTag = "decl.var.parameter.name.local";
+
+static StringRef getTagForPrintNameContext(PrintNameContext context) {
+  switch (context) {
+  case PrintNameContext::FunctionParameterExternal:
+    return ExternalParamNameTag;
+  case PrintNameContext::FunctionParameterLocal:
+    return LocalParamNameTag;
+  default:
+    return "";
+  }
+}
+
+static StringRef getDeclNameTagForDecl(const Decl *D) {
+  switch (D->getKind()) {
+  case DeclKind::Param:
+    // When we're examining the parameter itself, it is the local name that is
+    // the name of the variable.
+    return LocalParamNameTag;
+  default:
+    return "decl.name";
+  }
+}
+
+/// An ASTPrinter for annotating declarations with XML tags that describe the
+/// key substructure of the declaration for CursorInfo/DocInfo.
+///
+/// Prints declarations with decl- and type-specific tags derived from the
+/// UIDs used for decl/refs. For example (including newlines purely for ease of
+/// reading):
+///
+/// \verbatim
+///   <decl.function.free>
+///     func <decl.name>foo</decl.name>
+///     (
+///     <decl.var.parameter>
+///       <decl.var.parameter.name.local>x</decl.var.parameter.name.local>:
+///       <ref.struct usr="Si">Int</ref.struct>
+///     </decl.var.parameter>
+///     ) -> <ref.struct usr="Si">Int</ref.struct>
+///  </decl.function.free>
+/// \endverbatim
+class FullyAnnotatedDeclarationPrinter final : public XMLEscapingPrinter {
+public:
+  FullyAnnotatedDeclarationPrinter(raw_ostream &OS) : XMLEscapingPrinter(OS) {}
+
+private:
+
+  // MARK: The ASTPrinter callback interface.
+
+  void printDeclPre(const Decl *D) override {
+    DeclStack.emplace_back(D);
+    openTag(getTagForDecl(D, /*isRef=*/false));
+  }
+  void printDeclPost(const Decl *D) override {
+    assert(DeclStack.back() == D && "unmatched printDeclPre");
+    DeclStack.pop_back();
+    closeTag(getTagForDecl(D, /*isRef=*/false));
+  }
+
+  void printDeclLoc(const Decl *D) override {
+    openTag(getDeclNameTagForDecl(D));
+  }
+  void printDeclNameEndLoc(const Decl *D) override {
+    closeTag(getDeclNameTagForDecl(D));
+  }
+
+  void printTypePre(const TypeLoc &TL) override {
+    auto tag = getTypeTagForCurrentDecl();
+    if (!tag.empty())
+      openTag(tag);
+  }
+  void printTypePost(const TypeLoc &TL) override {
+    auto tag = getTypeTagForCurrentDecl();
+    if (!tag.empty())
+      closeTag(tag);
+  }
+
+  void printNamePre(PrintNameContext context) override {
+    auto tag = getTagForPrintNameContext(context);
+    if (!tag.empty())
+      openTag(tag);
+  }
+  void printNamePost(PrintNameContext context) override {
+    auto tag = getTagForPrintNameContext(context);
+    if (!tag.empty())
+      closeTag(tag);
+  }
+
+  void printTypeRef(const TypeDecl *TD, Identifier name) override {
+    auto tag = getTagForDecl(TD, /*isRef=*/true);
+    OS << "<" << tag << " usr=\"";
+    SwiftLangSupport::printUSR(TD, OS);
+    OS << "\">";
+    XMLEscapingPrinter::printTypeRef(TD, name);
+    closeTag(tag);
+  }
+
+  // MARK: Convenience functions for printing.
+
+  void openTag(StringRef tag) { OS << "<" << tag << ">"; }
+  void closeTag(StringRef tag) { OS << "</" << tag << ">"; }
+
+  // MARK: Misc.
+
+  StringRef getTypeTagForCurrentDecl() const {
+    if (const Decl *D = currentDecl()) {
+      switch (D->getKind()) {
+      case DeclKind::Param:
+        return "decl.var.parameter.type";
+      case DeclKind::Subscript:
+      case DeclKind::Func:
+        return "decl.function.returntype";
+      default:
+        break;
+      }
+    }
+    return "";
+  }
+
+  const Decl *currentDecl() const {
+    return DeclStack.empty() ? nullptr : DeclStack.back();
+  }
+
+private:
+  /// A stack of declarations being printed, used to determine the context for
+  /// other ASTPrinter callbacks.
+  llvm::SmallVector<const Decl *, 3> DeclStack;
+};
+
+static Type findBaseTypeForReplacingArchetype(const ValueDecl *VD, const Type Ty) {
+  if (Ty.isNull())
+    return Type();
+
+  // Find the nominal type decl related to VD.
+  NominalTypeDecl *NTD = VD->getDeclContext()->
+    getAsNominalTypeOrNominalTypeExtensionContext();
+  if (!NTD)
+    return Type();
+  Type Result;
+
+  // Walk the type tree to find the a sub-type who's convertible to the
+  // found nominal.
+  Ty.visit([&](Type T) {
+    if (!Result && (T->getAnyNominal() == NTD ||
+                    isConvertibleTo(T, NTD->getDeclaredType(),
+                                    VD->getDeclContext()))) {
+      Result = T;
+    }
+  });
+  return Result;
+}
+
+static void printAnnotatedDeclaration(const ValueDecl *VD, const Type Ty,
+                                      const Type BaseTy,
+                                      raw_ostream &OS) {
   AnnotatedDeclarationPrinter Printer(OS);
   PrintOptions PO = PrintOptions::printQuickHelpDeclaration();
+  if (BaseTy)
+    PO.setArchetypeTransformForQuickHelp(BaseTy, VD->getDeclContext());
 
   // If it's implicit, try to find an overridden ValueDecl that's not implicit.
   // This will ensure we can properly annotate TypeRepr with a usr
@@ -68,6 +234,23 @@ static void printAnnotatedDeclaration(const ValueDecl *VD, raw_ostream &OS) {
   OS<<"<Declaration>";
   VD->print(Printer, PO);
   OS<<"</Declaration>";
+}
+
+void SwiftLangSupport::printFullyAnnotatedDeclaration(const ValueDecl *VD,
+                                                      Type BaseTy,
+                                                      raw_ostream &OS) {
+  FullyAnnotatedDeclarationPrinter Printer(OS);
+  PrintOptions PO = PrintOptions::printQuickHelpDeclaration();
+  if (BaseTy)
+    PO.setArchetypeTransformForQuickHelp(BaseTy, VD->getDeclContext());
+
+  // If it's implicit, try to find an overridden ValueDecl that's not implicit.
+  // This will ensure we can properly annotate TypeRepr with a usr
+  // in AnnotatedDeclarationPrinter.
+  while (VD->isImplicit() && VD->getOverriddenDecl())
+    VD = VD->getOverriddenDecl();
+
+  VD->print(Printer, PO);
 }
 
 template <typename FnTy>
@@ -99,9 +282,9 @@ void walkRelatedDecls(const ValueDecl *VD, const FnTy &Fn) {
   }
 }
 
-//============================================================================//
+//===----------------------------------------------------------------------===//
 // SwiftLangSupport::getCursorInfo
-//============================================================================//
+//===----------------------------------------------------------------------===//
 
 static StringRef getSourceToken(unsigned Offset,
                                 ImmutableTextSnapshotRef Snap) {
@@ -235,7 +418,7 @@ static bool passCursorInfoForDecl(const ValueDecl *VD,
     return true;
 
   SmallString<64> SS;
-
+  auto BaseType = findBaseTypeForReplacingArchetype(VD, Ty);
   unsigned NameBegin = SS.size();
   {
     llvm::raw_svector_ostream OS(SS);
@@ -247,6 +430,12 @@ static bool passCursorInfoForDecl(const ValueDecl *VD,
   {
     llvm::raw_svector_ostream OS(SS);
     SwiftLangSupport::printUSR(VD, OS);
+    if (BaseType){
+      if(auto Target = BaseType->getAnyNominal()) {
+        OS << LangSupport::SynthesizedUSRSeparator;
+        SwiftLangSupport::printUSR(Target, OS);
+      }
+    }
   }
   unsigned USREnd = SS.size();
 
@@ -267,9 +456,24 @@ static bool passCursorInfoForDecl(const ValueDecl *VD,
   unsigned DeclBegin = SS.size();
   {
     llvm::raw_svector_ostream OS(SS);
-    printAnnotatedDeclaration(VD, OS);
+    printAnnotatedDeclaration(VD, Ty, BaseType, OS);
   }
   unsigned DeclEnd = SS.size();
+
+  unsigned FullDeclBegin = SS.size();
+  {
+    llvm::raw_svector_ostream OS(SS);
+    SwiftLangSupport::printFullyAnnotatedDeclaration(VD, BaseType, OS);
+  }
+  unsigned FullDeclEnd = SS.size();
+
+  unsigned GroupBegin = SS.size();
+  {
+    llvm::raw_svector_ostream OS(SS);
+    if (auto OP = VD->getGroupName())
+      OS << OP.getValue();
+  }
+  unsigned GroupEnd = SS.size();
 
   SmallVector<std::pair<unsigned, unsigned>, 4> OverUSROffs;
 
@@ -309,6 +513,8 @@ static bool passCursorInfoForDecl(const ValueDecl *VD,
         PO.SkipIntroducerKeywords = true;
         PO.ArgAndParamPrinting = PrintOptions::ArgAndParamPrintingMode::ArgumentOnly;
         XMLEscapingPrinter Printer(OS);
+        if (BaseType)
+          PO.setArchetypeTransform(BaseType, VD->getDeclContext());
         RelatedDecl->print(Printer, PO);
       } else {
         llvm::SmallString<128> Buf;
@@ -349,6 +555,9 @@ static bool passCursorInfoForDecl(const ValueDecl *VD,
                                    DocCommentEnd-DocCommentBegin);
   StringRef AnnotatedDecl = StringRef(SS.begin()+DeclBegin,
                                       DeclEnd-DeclBegin);
+  StringRef FullyAnnotatedDecl =
+      StringRef(SS.begin() + FullDeclBegin, FullDeclEnd - FullDeclBegin);
+  StringRef GroupName = StringRef(SS.begin() + GroupBegin, GroupEnd - GroupBegin);
 
   llvm::Optional<std::pair<unsigned, unsigned>> DeclarationLoc;
   StringRef Filename;
@@ -384,15 +593,17 @@ static bool passCursorInfoForDecl(const ValueDecl *VD,
   Info.TypeName = TypeName;
   Info.DocComment = DocComment;
   Info.AnnotatedDeclaration = AnnotatedDecl;
+  Info.FullyAnnotatedDeclaration = FullyAnnotatedDecl;
   Info.ModuleName = ModuleName;
   Info.ModuleInterfaceName = ModuleInterfaceName;
   Info.DeclarationLoc = DeclarationLoc;
   Info.Filename = Filename;
   Info.OverrideUSRs = OverUSRs;
   Info.AnnotatedRelatedDeclarations = AnnotatedRelatedDecls;
+  Info.GroupName = GroupName;
   Info.IsSystem = IsSystem;
-  Info.TypeInteface = ASTPrinter::printTypeInterface(Ty, VD->getDeclContext(),
-                                                     TypeInterface) ?
+  Info.TypeInterface = ASTPrinter::printTypeInterface(Ty, VD->getDeclContext(),
+                                                      TypeInterface) ?
     StringRef(TypeInterface) : StringRef();
   Receiver(Info);
   return false;
@@ -562,7 +773,7 @@ void SwiftLangSupport::getCursorInfo(
     if (trace::enabled()) {
       trace::SwiftInvocation SwiftArgs;
       trace::initTraceInfo(SwiftArgs, InputFile, Args);
-      // Do we nedd to record any files? If yes -- which ones?
+      // Do we need to record any files? If yes -- which ones?
       trace::StringPairs OpArgs {
         std::make_pair("DocumentName", IFaceGenRef->getDocumentName()),
         std::make_pair("ModuleOrHeaderName", IFaceGenRef->getModuleOrHeaderName()),
@@ -605,9 +816,9 @@ void SwiftLangSupport::getCursorInfo(
                 Receiver);
 }
 
-//============================================================================//
+//===----------------------------------------------------------------------===//
 // SwiftLangSupport::findUSRRange
-//============================================================================//
+//===----------------------------------------------------------------------===//
 
 llvm::Optional<std::pair<unsigned, unsigned>>
 SwiftLangSupport::findUSRRange(StringRef DocumentName, StringRef USR) {
@@ -619,9 +830,9 @@ SwiftLangSupport::findUSRRange(StringRef DocumentName, StringRef USR) {
   return None;
 }
 
-//============================================================================//
+//===----------------------------------------------------------------------===//
 // SwiftLangSupport::findRelatedIdentifiersInFile
-//============================================================================//
+//===----------------------------------------------------------------------===//
 
 namespace {
 class RelatedIdScanner : public ide::SourceEntityWalker {

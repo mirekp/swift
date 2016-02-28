@@ -3,7 +3,7 @@
 @override // expected-error {{'override' can only be specified on class members}} {{1-11=}} expected-error {{'override' is a declaration modifier, not an attribute}} {{1-2=}}
 func virtualAttributeCanNotBeUsedInSource() {}
 
-class MixedKeywordsAndAttributes {
+class MixedKeywordsAndAttributes { // expected-note {{in declaration of 'MixedKeywordsAndAttributes'}}
   // expected-error@+1 {{expected declaration}} expected-error@+1 {{consecutive declarations on a line must be separated by ';'}} {{11-11=;}}
   override @inline(never) func f1() {}
 }
@@ -247,4 +247,14 @@ class C_with_let {
 class D_with_let : C_with_let {
   override var x : Int { get { return 4 } set {} }  // expected-error {{cannot override immutable 'let' property 'x' with the getter of a 'var'}}
 }
+
+
+// <rdar://problem/21311590> QoI: Inconsistent diagnostics when no constructor is available
+class C21311590 {
+  override init() {}  // expected-error {{initializer does not override a designated initializer from its superclass}}
+}
+class B21311590 : C21311590 {}
+_ = C21311590()
+_ = B21311590()
+
 

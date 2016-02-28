@@ -38,11 +38,11 @@ func useTwoIdentical(xi: Int, yi: Float) {
   y = twoIdentical(1.0, y)
   y = twoIdentical(y, 1.0)
   
-  twoIdentical(x, y) // expected-error{{cannot invoke 'twoIdentical' with an argument list of type '(Int, Float)'}} expected-note{{expected an argument list of type '(T, T)'}}
+  twoIdentical(x, y) // expected-error{{cannot convert value of type 'Float' to expected argument type 'Int'}}
 }
 
-func mySwap<T>(inout x: T,
-               inout _ y: T) {
+func mySwap<T>(x: inout T,
+               _ y: inout T) {
   let tmp = x
   x = y
   y = tmp
@@ -56,7 +56,7 @@ func useSwap(xi: Int, yi: Float) {
   mySwap(x, x) // expected-error {{passing value of type 'Int' to an inout parameter requires explicit '&'}} {{10-10=&}}
     // expected-error @-1 {{passing value of type 'Int' to an inout parameter requires explicit '&'}} {{13-13=&}}
   
-  mySwap(&x, &y) // expected-error{{cannot convert value of type 'inout Int' to expected argument type 'inout _'}}
+  mySwap(&x, &y) // expected-error{{cannot convert value of type 'Float' to expected argument type 'Int'}}
 }
 
 func takeTuples<T, U>(_: (T, U), _: (U, T)) {
@@ -65,7 +65,7 @@ func takeTuples<T, U>(_: (T, U), _: (U, T)) {
 func useTuples(x: Int, y: Float, z: (Float, Int)) {
   takeTuples((x, y), (y, x))
 
-  takeTuples((x, y), (x, y)) // expected-error{{cannot convert value of type '(Int, Float)' to expected argument type '(_, _)'}}
+  takeTuples((x, y), (x, y)) // expected-error{{cannot convert value of type 'Int' to expected argument type 'Float'}}
 
   // FIXME: Use 'z', which requires us to fix our tuple-conversion
   // representation.
@@ -75,14 +75,13 @@ func acceptFunction<T, U>(f: (T) -> U, _ t: T, _ u: U) {}
 
 func passFunction(f: (Int) -> Float, x: Int, y: Float) {
    acceptFunction(f, x, y)
-   acceptFunction(f, y, y) // expected-error{{cannot convert value of type '(Int) -> Float' to expected argument type '(_) -> _'}}
+   acceptFunction(f, y, y) // expected-error{{cannot convert value of type 'Float' to expected argument type 'Int'}}
 }
 
-func returnTuple<T, U>(_: T) -> (T, U) { }
+func returnTuple<T, U>(_: T) -> (T, U) { } // expected-note {{in call to function 'returnTuple'}}
 
 func testReturnTuple(x: Int, y: Float) {
-  returnTuple(x) // expected-error{{cannot invoke 'returnTuple' with an argument list of type '(Int)'}}
-  // expected-note @-1 {{expected an argument list of type '(T)'}}
+  returnTuple(x) // expected-error{{generic parameter 'T' could not be inferred}}
   
   var _ : (Int, Float) = returnTuple(x)
   var _ : (Float, Float) = returnTuple(y)
@@ -100,8 +99,8 @@ func confusingArgAndParam<T, U>(f: (T) -> U, _ g: (U) -> T) {
 func acceptUnaryFn<T, U>(f: (T) -> U) { }
 func acceptUnaryFnSame<T>(f: (T) -> T) { }
 
-func acceptUnaryFnRef<T, U>(inout f: (T) -> U) { }
-func acceptUnaryFnSameRef<T>(inout f: (T) -> T) { }
+func acceptUnaryFnRef<T, U>(f: inout (T) -> U) { }
+func acceptUnaryFnSameRef<T>(f: inout (T) -> T) { }
 
 func unaryFnIntInt(_: Int) -> Int {}
 
@@ -206,7 +205,7 @@ extension Int : IsBefore {
 
 func callMin(x: Int, y: Int, a: Float, b: Float) {
   min2(x, y)
-  min2(a, b) // expected-error{{cannot invoke 'min2' with an argument list of type '(Float, Float)'}} expected-note {{expected an argument list of type '(T, T)'}}
+  min2(a, b) // expected-error{{argument type 'Float' does not conform to expected type 'IsBefore'}}
 }
 
 func rangeOfIsBefore<
@@ -216,7 +215,7 @@ func rangeOfIsBefore<
 
 func callRangeOfIsBefore(ia: [Int], da: [Double]) {
   rangeOfIsBefore(ia.generate())
-  rangeOfIsBefore(da.generate()) // expected-error{{cannot invoke 'rangeOfIsBefore' with an argument list of type '(IndexingGenerator<[Double]>)'}} expected-note{{expected an argument list of type '(R)'}}
+  rangeOfIsBefore(da.generate()) // expected-error{{ambiguous reference to member 'generate()'}}
 }
 
 //===----------------------------------------------------------------------===//
@@ -266,7 +265,7 @@ func testGetVectorSize(vi: MyVector<Int>, vf: MyVector<Float>) {
 postfix operator <*> {}
 
 protocol MetaFunction {
-  typealias Result
+  associatedtype Result
   postfix func <*> (_: Self) -> Result?
 }
 
@@ -288,3 +287,15 @@ var iy2 : Inty = "hello" // expected-error{{cannot convert value of type 'String
 class DeducePropertyParams {
   let badSet: Set = ["Hello"]
 }
+
+// SR-69
+struct A {}
+func foo() {
+    for i in min(1,2) { // expected-error{{type 'Int' does not conform to protocol 'SequenceType'}}
+    }
+    let j = min(Int(3), Float(2.5)) // expected-error{{cannot convert value of type 'Float' to expected argument type 'Int'}}
+    let k = min(A(), A()) // expected-error{{argument type 'A' does not conform to expected type 'Comparable'}}
+    let oi : Int? = 5
+    let l = min(3, oi) // expected-error{{value of optional type 'Int?' not unwrapped; did you mean to use '!' or '?'?}}
+}
+

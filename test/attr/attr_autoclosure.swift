@@ -12,31 +12,18 @@ func func2(@autoclosure fp : () -> Int) { func2(4)}
 
 func func3(@autoclosure fp fpx : () -> Int) {func3(fp: 0)}
 func func4(@autoclosure fp fp : () -> Int) {func4(fp: 0)}
-func func5(@autoclosure fp fp : () -> Int) {func5(fp: 0)}
 func func6(@autoclosure _: () -> Int) {func6(0)}
 
 // declattr and typeattr on the argument.
 func func7(@autoclosure _: @noreturn () -> Int) {func7(0)}
 
 // autoclosure + inout don't make sense.
-func func8(@autoclosure inout x: () -> Bool) -> Bool {  // expected-error {{@autoclosure may only be applied to values of function type}}
+func func8(@autoclosure x: inout () -> Bool) -> Bool {  // expected-error {{@autoclosure may only be applied to values of function type}}
 }
 
-
-// Should have good QoI:
-func migrate1(fp fpx : @autoclosure () -> Int) {}   // expected-error {{@autoclosure is now an attribute of the parameter declaration, not its type}} {{15-15=@autoclosure }} {{24-37=}}
-struct MethodHolder {
-  func migrate2(a : Int, _ fp : @autoclosure () -> Int) {}    // expected-error {{@autoclosure is now an attribute of the parameter declaration, not its type}} {{26-26=@autoclosure }} {{33-46=}}
-}
-func migrate3(fp fp : @autoclosure () -> Int) {}    // expected-error {{@autoclosure is now an attribute of the parameter declaration, not its type}} {{15-15=@autoclosure }} {{23-36=}}
-public func || <T: BooleanType>(
-  lhs: T, rhs: @autoclosure () -> Bool    // expected-error {{@autoclosure is now an attribute of the parameter declaration, not its type}} {{11-11=@autoclosure }} {{16-29=}}
-  ) -> Bool {
-    return lhs.boolValue ? true : rhs().boolValue
-}
 
 // <rdar://problem/19707366> QoI: @autoclosure declaration change fixit
-let migrate4 : @autoclosure() -> ()   // expected-error {{@autoclosure is now an attribute of the parameter declaration, not its type}} {{1-1=@autoclosure }} {{16-28=}}
+let migrate4 : @autoclosure() -> ()   // expected-error {{attribute can only be applied to declarations, not types}} {{1-1=@autoclosure }} {{16-28=}}
 
 
 struct SomeStruct {
@@ -56,10 +43,10 @@ class DerivedClass {
 }
 
 protocol P1 {
-  typealias Element
+  associatedtype Element
 }
 protocol P2 : P1 {
-  typealias Element
+  associatedtype Element
 }
 
 func overloadedEach<O: P1>(source: O, _ closure: () -> ()) {
@@ -71,8 +58,7 @@ func overloadedEach<P: P2>(source: P, _ closure: () -> ()) {
 struct S : P2 {
   typealias Element = Int
   func each(@autoclosure closure: () -> ()) {
-    overloadedEach(self, closure) // expected-error {{cannot invoke 'overloadedEach' with an argument list of type '(S, @autoclosure () -> ())'}}
- // expected-note @-1 {{overloads for 'overloadedEach' exist with these partially matching parameter lists: (O, () -> ()), (P, () -> ())}}
+    overloadedEach(self, closure) // expected-error {{invalid conversion from non-escaping function of type '@autoclosure () -> ()' to potentially escaping function type '() -> ()'}}
   }
 }
 
@@ -124,7 +110,7 @@ class TestFunc12 {
 
 
 enum AutoclosureFailableOf<T> {
-  case Success(@autoclosure () -> T)  // expected-error {{@autoclosure is only allowed on parameters, not on enum cases}}
+  case Success(@autoclosure () -> T)  // expected-error {{attribute can only be applied to declarations, not types}}
   case Failure()
 }
 

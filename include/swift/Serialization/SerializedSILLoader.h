@@ -1,8 +1,8 @@
-//===--- SerializedSILLoader.h - Handle SIL section in modules --*- c++ -*-===//
+//===--- SerializedSILLoader.h - Handle SIL section in modules --*- C++ -*-===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -16,6 +16,7 @@
 #include "swift/AST/Decl.h"
 #include "swift/AST/Identifier.h"
 #include "swift/SIL/SILDeclRef.h"
+#include "swift/SIL/SILLinkage.h"
 #include <memory>
 #include <vector>
 
@@ -43,7 +44,7 @@ public:
     /// Observe that we successfully deserialized a function body.
     virtual void didDeserializeFunctionBody(ModuleDecl *M, SILFunction *fn) {}
 
-    /// Oberve that we successfully deserialized a witness table's entries.
+    /// Observe that we successfully deserialized a witness table's entries.
     virtual void didDeserializeWitnessTableEntries(ModuleDecl *M,
                                                    SILWitnessTable *wt) {}
 
@@ -81,7 +82,9 @@ public:
 
   SILFunction *lookupSILFunction(SILFunction *Callee);
   SILFunction *lookupSILFunction(SILDeclRef Decl);
-  SILFunction *lookupSILFunction(StringRef Name);
+  SILFunction *
+  lookupSILFunction(StringRef Name, bool declarationOnly = false,
+                    SILLinkage linkage = SILLinkage::Private);
   SILVTable *lookupVTable(Identifier Name);
   SILVTable *lookupVTable(const ClassDecl *C) {
     return lookupVTable(C->getName());
@@ -90,6 +93,8 @@ public:
 
   /// Invalidate the cached entries for deserialized SILFunctions.
   void invalidateCaches();
+
+  bool invalidateFunction(SILFunction *F);
 
   /// Deserialize all SILFunctions, VTables, and WitnessTables in all
   /// SILModules.

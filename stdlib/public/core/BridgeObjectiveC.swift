@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -15,12 +15,12 @@
 /// `_ObjectiveCBridgeable` can be passed to Objective-C as an NSArray or
 /// NSDictionary, respectively.  The elements of the resulting NSArray
 /// or NSDictionary will be the result of calling `_bridgeToObjectiveC`
-/// on each elmeent of the source container.
+/// on each element of the source container.
 public protocol _ObjectiveCBridgeable {
-  typealias _ObjectiveCType : AnyObject
+  associatedtype _ObjectiveCType : AnyObject
 
-  /// Return true iff instances of `Self` can be converted to
-  /// Objective-C.  Even if this method returns `true`, A given
+  /// Returns `true` iff instances of `Self` can be converted to
+  /// Objective-C.  Even if this method returns `true`, a given
   /// instance of `Self._ObjectiveCType` may, or may not, convert
   /// successfully to `Self`; for example, an `NSArray` will only
   /// convert successfully to `[String]` if it contains only
@@ -29,7 +29,7 @@ public protocol _ObjectiveCBridgeable {
   static func _isBridgedToObjectiveC() -> Bool
 
   // _getObjectiveCType is a workaround: right now protocol witness
-  // tables don't include associated types, so we can not find
+  // tables don't include associated types, so we cannot find
   // '_ObjectiveCType.self' from them.
 
   /// Must return `_ObjectiveCType.self`.
@@ -52,7 +52,7 @@ public protocol _ObjectiveCBridgeable {
   ///   will always contain a value.
   static func _forceBridgeFromObjectiveC(
     source: _ObjectiveCType,
-    inout result: Self?
+    result: inout Self?
   )
 
   /// Try to bridge from an Objective-C object of the bridged class
@@ -71,7 +71,7 @@ public protocol _ObjectiveCBridgeable {
   ///   to determine success.
   static func _conditionallyBridgeFromObjectiveC(
     source: _ObjectiveCType,
-    inout result: Self?
+    result: inout Self?
   ) -> Bool
 }
 
@@ -81,7 +81,7 @@ public protocol _ObjectiveCBridgeable {
 ///
 /// The language and runtime do not yet support protocol conformances for
 /// structural types like metatypes. However, we can use a struct that contains
-/// a metatype, make it conform to to _ObjectiveCBridgeable, and its witness table
+/// a metatype, make it conform to _ObjectiveCBridgeable, and its witness table
 /// will be ABI-compatible with one that directly provided conformance to the
 /// metatype type itself.
 public struct _BridgeableMetatype: _ObjectiveCBridgeable {
@@ -103,14 +103,14 @@ public struct _BridgeableMetatype: _ObjectiveCBridgeable {
 
   public static func _forceBridgeFromObjectiveC(
     source: AnyObject,
-    inout result: _BridgeableMetatype?
+    result: inout _BridgeableMetatype?
   ) {
     result = _BridgeableMetatype(value: source as! AnyObject.Type)
   }
 
   public static func _conditionallyBridgeFromObjectiveC(
     source: AnyObject,
-    inout result: _BridgeableMetatype?
+    result: inout _BridgeableMetatype?
   ) -> Bool {
     if let type = source as? AnyObject.Type {
       result = _BridgeableMetatype(value: type)
@@ -131,7 +131,7 @@ public struct _BridgeableMetatype: _ObjectiveCBridgeable {
 
 /// Attempt to convert `x` to its Objective-C representation.
 ///
-/// - If `T` is a class type, it is alaways bridged verbatim, the function
+/// - If `T` is a class type, it is always bridged verbatim, the function
 ///   returns `x`;
 ///
 /// - otherwise, `T` conforms to `_ObjectiveCBridgeable`:
@@ -254,10 +254,10 @@ public func _conditionallyBridgeFromObjectiveC_bridgeable<T:_ObjectiveCBridgeabl
 func _bridgeNonVerbatimFromObjectiveC<T>(
   x: AnyObject,
   _ nativeType: T.Type,
-  inout _ result: T?
+  _ result: inout T?
 )
 
-/// Runtime optional to conditionall perform a bridge from an object to a value
+/// Runtime optional to conditionally perform a bridge from an object to a value
 /// type.
 ///
 /// - parameter result: Will be set to the resulting value if bridging succeeds, and
@@ -268,7 +268,7 @@ func _bridgeNonVerbatimFromObjectiveC<T>(
 func _bridgeNonVerbatimFromObjectiveCConditional<T>(
   x: AnyObject,
   _ nativeType: T.Type,
-  inout _ result: T?
+  _ result: inout T?
 ) -> Bool
 
 /// Determines if values of a given type can be converted to an Objective-C
@@ -300,7 +300,7 @@ public func _isBridgedVerbatimToObjectiveC<T>(_: T.Type) -> Bool {
 
 /// Retrieve the Objective-C type to which the given type is bridged.
 @warn_unused_result
-public func _getBridgedObjectiveCType<T>(_: T.Type) -> Any.Type?  {
+public func _getBridgedObjectiveCType<T>(_: T.Type) -> Any.Type? {
   if _fastPath(_isClassOrObjCExistential(T.self)) {
     return T.self
   }
@@ -450,45 +450,45 @@ public func == <Memory> (
 
 internal struct _CocoaFastEnumerationStackBuf {
   // Clang uses 16 pointers.  So do we.
-  var item0: Builtin.RawPointer
-  var item1: Builtin.RawPointer
-  var item2: Builtin.RawPointer
-  var item3: Builtin.RawPointer
-  var item4: Builtin.RawPointer
-  var item5: Builtin.RawPointer
-  var item6: Builtin.RawPointer
-  var item7: Builtin.RawPointer
-  var item8: Builtin.RawPointer
-  var item9: Builtin.RawPointer
-  var item10: Builtin.RawPointer
-  var item11: Builtin.RawPointer
-  var item12: Builtin.RawPointer
-  var item13: Builtin.RawPointer
-  var item14: Builtin.RawPointer
-  var item15: Builtin.RawPointer
+  internal var _item0: Builtin.RawPointer
+  internal var _item1: Builtin.RawPointer
+  internal var _item2: Builtin.RawPointer
+  internal var _item3: Builtin.RawPointer
+  internal var _item4: Builtin.RawPointer
+  internal var _item5: Builtin.RawPointer
+  internal var _item6: Builtin.RawPointer
+  internal var _item7: Builtin.RawPointer
+  internal var _item8: Builtin.RawPointer
+  internal var _item9: Builtin.RawPointer
+  internal var _item10: Builtin.RawPointer
+  internal var _item11: Builtin.RawPointer
+  internal var _item12: Builtin.RawPointer
+  internal var _item13: Builtin.RawPointer
+  internal var _item14: Builtin.RawPointer
+  internal var _item15: Builtin.RawPointer
 
   @_transparent
-  var length: Int {
+  internal var length: Int {
     return 16
   }
 
-  init() {
-    item0 = _nilRawPointer
-    item1 = item0
-    item2 = item0
-    item3 = item0
-    item4 = item0
-    item5 = item0
-    item6 = item0
-    item7 = item0
-    item8 = item0
-    item9 = item0
-    item10 = item0
-    item11 = item0
-    item12 = item0
-    item13 = item0
-    item14 = item0
-    item15 = item0
+  internal init() {
+    _item0 = _nilRawPointer
+    _item1 = _item0
+    _item2 = _item0
+    _item3 = _item0
+    _item4 = _item0
+    _item5 = _item0
+    _item6 = _item0
+    _item7 = _item0
+    _item8 = _item0
+    _item9 = _item0
+    _item10 = _item0
+    _item11 = _item0
+    _item12 = _item0
+    _item13 = _item0
+    _item14 = _item0
+    _item15 = _item0
 
     _sanityCheck(sizeofValue(self) >= sizeof(Builtin.RawPointer.self) * length)
   }

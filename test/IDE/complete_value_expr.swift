@@ -178,17 +178,17 @@ struct FooStruct {
   mutating
   func instanceFunc1(a: Int) {}
   mutating
-  func instanceFunc2(a: Int, inout b: Double) {}
+  func instanceFunc2(a: Int, b: inout Double) {}
   mutating
   func instanceFunc3(a: Int, _: (Float, Double)) {}
   mutating
-  func instanceFunc4(a: Int?, b: Int!, inout c: Int?, inout d: Int!) {}
+  func instanceFunc4(a: Int?, b: Int!, c: inout Int?, d: inout Int!) {}
   mutating
   func instanceFunc5() -> Int? {}
   mutating
   func instanceFunc6() -> Int! {}
   mutating
-  func instanceFunc7(#a: Int) {}
+  func instanceFunc7(a a: Int) {}
   mutating
   func instanceFunc8(a: (Int, Int)) {}
   mutating
@@ -271,7 +271,7 @@ struct FooStruct {
   struct NestedStruct {}
   class NestedClass {}
   enum NestedEnum {}
-  // Can not declare a nested protocol.
+  // Cannot declare a nested protocol.
   // protocol NestedProtocol {}
 
   typealias NestedTypealias = Int
@@ -410,9 +410,9 @@ var fooObject: FooStruct
 // FOO_STRUCT_DOT: Begin completions
 // FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc0({#self: &FooStruct#})[#() -> Void#]{{; name=.+$}}
 // FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc1({#self: &FooStruct#})[#(Int) -> Void#]{{; name=.+$}}
-// FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc2({#self: &FooStruct#})[#(Int, inout b: Double) -> Void#]{{; name=.+$}}
+// FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc2({#self: &FooStruct#})[#(Int, b: inout Double) -> Void#]{{; name=.+$}}
 // FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc3({#self: &FooStruct#})[#(Int, (Float, Double)) -> Void#]{{; name=.+$}}
-// FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc4({#self: &FooStruct#})[#(Int?, b: Int!, inout c: Int?, inout d: Int!) -> Void#]{{; name=.+$}}
+// FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc4({#self: &FooStruct#})[#(Int?, b: Int!, c: inout Int?, d: inout Int!) -> Void#]{{; name=.+$}}
 // FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc5({#self: &FooStruct#})[#() -> Int?#]{{; name=.+$}}
 // FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc6({#self: &FooStruct#})[#() -> Int!#]{{; name=.+$}}
 // FOO_STRUCT_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: instanceFunc7({#self: &FooStruct#})[#(a: Int) -> Void#]{{; name=.+$}}
@@ -467,9 +467,9 @@ var fooObject: FooStruct
 // FOO_STRUCT_NO_DOT: Begin completions
 // FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc0({#self: &FooStruct#})[#() -> Void#]{{; name=.+$}}
 // FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc1({#self: &FooStruct#})[#(Int) -> Void#]{{; name=.+$}}
-// FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc2({#self: &FooStruct#})[#(Int, inout b: Double) -> Void#]{{; name=.+$}}
+// FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc2({#self: &FooStruct#})[#(Int, b: inout Double) -> Void#]{{; name=.+$}}
 // FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc3({#self: &FooStruct#})[#(Int, (Float, Double)) -> Void#]{{; name=.+$}}
-// FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc4({#self: &FooStruct#})[#(Int?, b: Int!, inout c: Int?, inout d: Int!) -> Void#]{{; name=.+$}}
+// FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc4({#self: &FooStruct#})[#(Int?, b: Int!, c: inout Int?, d: inout Int!) -> Void#]{{; name=.+$}}
 // FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc5({#self: &FooStruct#})[#() -> Int?#]{{; name=.+$}}
 // FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc6({#self: &FooStruct#})[#() -> Int!#]{{; name=.+$}}
 // FOO_STRUCT_NO_DOT-NEXT: Decl[InstanceMethod]/CurrNominal: .instanceFunc7({#self: &FooStruct#})[#(a: Int) -> Void#]{{; name=.+$}}
@@ -769,7 +769,7 @@ func testInsideFunctionCall1() {
   var a = FooStruct()
   a.instanceFunc0(#^INSIDE_FUNCTION_CALL_1^#
 // There should be no other results here because the function call
-// unambigously resolves to overload that takes 0 arguments.
+// unambiguously resolves to overload that takes 0 arguments.
 // INSIDE_FUNCTION_CALL_1: Begin completions
 // INSIDE_FUNCTION_CALL_1-NEXT: Pattern/ExprSpecific: ['('])[#Void#]{{; name=.+$}}
 // INSIDE_FUNCTION_CALL_1-NEXT: End completions
@@ -789,7 +789,7 @@ func testInsideFunctionCall3() {
   FooStruct().instanceFunc1(42, #^INSIDE_FUNCTION_CALL_3^#
 // INSIDE_FUNCTION_CALL_3: Begin completions
 // FIXME: There should be no results here because the function call
-// unambigously resolves to overload that takes 1 argument.
+// unambiguously resolves to overload that takes 1 argument.
 // INSIDE_FUNCTION_CALL_3-DAG: Decl[GlobalVar]/CurrModule: fooObject[#FooStruct#]{{; name=.+$}}
 // INSIDE_FUNCTION_CALL_3: End completions
 }
@@ -833,8 +833,7 @@ func testInsideFunctionCall8(var x: FooStruct) {
 // Since we already have '()', there is no pattern to complete.
 // INSIDE_FUNCTION_CALL_8-NOT: Pattern/{{.*}}:
 }
-func testInsideFunctionCall9(x: FooStruct) {
-  var x = x
+func testInsideFunctionCall9(var x: FooStruct) {
   x.instanceFunc1(#^INSIDE_FUNCTION_CALL_9^#)
 // Annotated ')'
 // INSIDE_FUNCTION_CALL_9: Begin completions
@@ -842,8 +841,7 @@ func testInsideFunctionCall9(x: FooStruct) {
 // INSIDE_FUNCTION_CALL_9-DAG: Decl[GlobalVar]/CurrModule: fooObject[#FooStruct#]{{; name=.+$}}
 // INSIDE_FUNCTION_CALL_9: End completions
 }
-func testInsideFunctionCall10(x: FooStruct) {
-  var x = x
+func testInsideFunctionCall10(var x: FooStruct) {
   x.instanceFunc2(#^INSIDE_FUNCTION_CALL_10^#)
 // Annotated ')'
 // INSIDE_FUNCTION_CALL_10: Begin completions
@@ -851,13 +849,11 @@ func testInsideFunctionCall10(x: FooStruct) {
 // INSIDE_FUNCTION_CALL_10-DAG: Decl[GlobalVar]/CurrModule: fooObject[#FooStruct#]{{; name=.+$}}
 // INSIDE_FUNCTION_CALL_10: End completions
 }
-func testInsideFunctionCall11(x: FooStruct) {
-  var x = x
+func testInsideFunctionCall11(var x: FooStruct) {
   x.instanceFunc2(#^INSIDE_FUNCTION_CALL_11^#,
 // INSIDE_FUNCTION_CALL_11-NOT: Pattern/{{.*}}:{{.*}}({{.*}}{#Int#}
 }
-func testInsideFunctionCall12(x: FooStruct) {
-  var x = x
+func testInsideFunctionCall12(var x: FooStruct) {
   x.instanceFunc2(#^INSIDE_FUNCTION_CALL_12^#<#placeholder#>
 // INSIDE_FUNCTION_CALL_12-NOT: Pattern/{{.*}}:{{.*}}({{.*}}{#Int#}
 }
@@ -1184,8 +1180,7 @@ func testFuncParenPattern2(fpp: FuncParenPattern) {
 // FUNC_PAREN_PATTERN_2-NEXT: End completions
 }
 
-func testFuncParenPattern3(fpp: FuncParenPattern) {
-  var fpp = fpp
+func testFuncParenPattern3(var fpp: FuncParenPattern) {
   fpp.instanceFunc#^FUNC_PAREN_PATTERN_3^#
 // FUNC_PAREN_PATTERN_3: Begin completions
 // FUNC_PAREN_PATTERN_3-NEXT: Pattern/ExprSpecific: ({#Int#})[#Void#]{{; name=.+$}}
@@ -1368,11 +1363,11 @@ func testResolveGenericParamsError1() {
 class BuilderStyle<T> {
   var count = 0
   func addString(s: String) -> BuilderStyle<T> {
-    count++
+    count += 1
     return self
   }
   func add(t: T) -> BuilderStyle<T> {
-    count++
+    count += 1
     return self
   }
   func get() -> Int {
@@ -1683,7 +1678,7 @@ func testTypealias1<S: P4 where S.T == WillConformP1>() {
   S.#^PROTOCOL_EXT_TA_2^#
 }
 // PROTOCOL_EXT_TA: Begin completions
-// PROTOCOL_EXT_TA-DAG: Decl[TypeAlias]/{{Super|CurrNominal}}: T
+// PROTOCOL_EXT_TA_2-DAG: Decl[AssociatedType]/{{Super|CurrNominal}}: T
 // PROTOCOL_EXT_TA: End completions
 
 func testProtExtInit1() {

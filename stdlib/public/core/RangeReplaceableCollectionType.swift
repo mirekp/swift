@@ -1,8 +1,8 @@
-//===--- RangeReplaceableCollectionType.swift -----------------*- swift -*-===//
+//===--- RangeReplaceableCollectionType.swift -----------------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -14,7 +14,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-/// A *collection* that supports replacement of an arbitrary subRange
+/// A collection that supports replacement of an arbitrary subRange
 /// of elements with the elements of another collection.
 public protocol RangeReplaceableCollectionType : CollectionType {
   //===--- Fundamental Requirements ---------------------------------------===//
@@ -95,7 +95,7 @@ public protocol RangeReplaceableCollectionType : CollectionType {
   func +=<
     S : SequenceType
     where S.Generator.Element == Generator.Element
-  >(inout _: Self, _: S)
+  >(_: inout Self, _: S)
   */
 
   /// Append the elements of `newElements` to `self`.
@@ -345,7 +345,7 @@ extension RangeReplaceableCollectionType where Index : BidirectionalIndexType {
 @available(*, unavailable, message="call the 'insert()' method on the collection")
 public func insert<
     C: RangeReplaceableCollectionType
->(inout x: C, _ newElement: C.Generator.Element, atIndex i: C.Index) {
+>(x: inout C, _ newElement: C.Generator.Element, atIndex i: C.Index) {
   fatalError("unavailable function can't be called")
 }
 
@@ -358,7 +358,7 @@ public func insert<
 public func splice<
     C: RangeReplaceableCollectionType,
     S : CollectionType where S.Generator.Element == C.Generator.Element
->(inout x: C, _ newElements: S, atIndex i: C.Index) {
+>(x: inout C, _ newElements: S, atIndex i: C.Index) {
   fatalError("unavailable function can't be called")
 }
 
@@ -370,7 +370,7 @@ public func splice<
 @available(*, unavailable, message="call the 'removeAtIndex()' method on the collection")
 public func removeAtIndex<
     C: RangeReplaceableCollectionType
->(inout x: C, _ index: C.Index) -> C.Generator.Element {
+>(x: inout C, _ index: C.Index) -> C.Generator.Element {
   fatalError("unavailable function can't be called")
 }
 
@@ -382,7 +382,7 @@ public func removeAtIndex<
 @available(*, unavailable, message="call the 'removeRange()' method on the collection")
 public func removeRange<
     C: RangeReplaceableCollectionType
->(inout x: C, _ subRange: Range<C.Index>) {
+>(x: inout C, _ subRange: Range<C.Index>) {
   fatalError("unavailable function can't be called")
 }
 
@@ -398,7 +398,7 @@ public func removeRange<
 @available(*, unavailable, message="call the 'removeAll()' method on the collection")
 public func removeAll<
     C: RangeReplaceableCollectionType
->(inout x: C, keepCapacity: Bool = false) {
+>(x: inout C, keepCapacity: Bool = false) {
   fatalError("unavailable function can't be called")
 }
 
@@ -409,7 +409,7 @@ public func removeAll<
 public func extend<
     C: RangeReplaceableCollectionType,
     S : SequenceType where S.Generator.Element == C.Generator.Element
->(inout x: C, _ newElements: S) {
+>(x: inout C, _ newElements: S) {
   fatalError("unavailable function can't be called")
 }
 
@@ -436,7 +436,7 @@ extension RangeReplaceableCollectionType {
 @available(*, unavailable, message="call the 'removeLast()' method on the collection")
 public func removeLast<
     C: RangeReplaceableCollectionType where C.Index : BidirectionalIndexType
->(inout x: C) -> C.Generator.Element {
+>(x: inout C) -> C.Generator.Element {
   fatalError("unavailable function can't be called")
 }
 
@@ -448,6 +448,7 @@ public func +<
 >(lhs: C, rhs: S) -> C {
   var lhs = lhs
   // FIXME: what if lhs is a reference type?  This will mutate it.
+  lhs.reserveCapacity(lhs.count + numericCast(rhs.underestimateCount()))
   lhs.appendContentsOf(rhs)
   return lhs
 }
@@ -459,23 +460,10 @@ public func +<
     where S.Generator.Element == C.Generator.Element
 >(lhs: S, rhs: C) -> C {
   var result = C()
-  result.reserveCapacity(rhs.count + numericCast(rhs.underestimateCount()))
+  result.reserveCapacity(rhs.count + numericCast(lhs.underestimateCount()))
   result.appendContentsOf(lhs)
   result.appendContentsOf(rhs)
   return result
-}
-
-@warn_unused_result
-public func +<
-    C : RangeReplaceableCollectionType,
-    S : CollectionType
-    where S.Generator.Element == C.Generator.Element
->(lhs: C, rhs: S) -> C {
-  var lhs = lhs
-  // FIXME: what if lhs is a reference type?  This will mutate it.
-  lhs.reserveCapacity(lhs.count + numericCast(rhs.count))
-  lhs.appendContentsOf(rhs)
-  return lhs
 }
 
 @warn_unused_result
@@ -484,8 +472,8 @@ public func +<
     RRC2 : RangeReplaceableCollectionType 
     where RRC1.Generator.Element == RRC2.Generator.Element
 >(lhs: RRC1, rhs: RRC2) -> RRC1 {
-  var lhs = lhs
   // FIXME: what if lhs is a reference type?  This will mutate it.
+  var lhs = lhs
   lhs.reserveCapacity(lhs.count + numericCast(rhs.count))
   lhs.appendContentsOf(rhs)
   return lhs

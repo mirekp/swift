@@ -2,18 +2,13 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
-
-#if _runtime(_ObjC)
-// Excluded due to use of dynamic casting and Builtin.autorelease, neither
-// of which correctly work without the ObjC Runtime right now.
-// See rdar://problem/18801510
 
 /// Instances of conforming types can be encoded, and appropriately
 /// passed, as elements of a C `va_list`.
@@ -52,7 +47,7 @@ protocol _CVarArgPassedAsDouble : CVarArgType {}
 /// Some types require alignment greater than Int on some architectures.
 public // SPI(CoreGraphics)
 protocol _CVarArgAlignedType : CVarArgType {
-  /// Return the required alignment in bytes of 
+  /// Returns the required alignment in bytes of 
   /// the value returned by `_cVarArgEncoding`.
   var _cVarArgAlignment: Int { get }
 }
@@ -82,6 +77,11 @@ public func withVaList<R>(builder: VaListBuilder,
   return result
 }
 
+#if _runtime(_ObjC)
+// Excluded due to use of dynamic casting and Builtin.autorelease, neither
+// of which correctly work without the ObjC Runtime right now.
+// See rdar://problem/18801510
+
 /// Returns a `CVaListPointer` built from `args` that's backed by
 /// autoreleased storage.
 ///
@@ -100,6 +100,7 @@ public func getVaList(args: [CVarArgType]) -> CVaListPointer {
   Builtin.autorelease(builder)
   return builder.va_list()
 }
+#endif
 
 @warn_unused_result
 public func _encodeBitsAsWords<T : CVarArgType>(x: T) -> [Int] {
@@ -133,7 +134,7 @@ extension Int64 : CVarArgType, _CVarArgAlignedType {
     return _encodeBitsAsWords(self)
   }
 
-  /// Return the required alignment in bytes of 
+  /// Returns the required alignment in bytes of 
   /// the value returned by `_cVarArgEncoding`.
   public var _cVarArgAlignment: Int {
     // FIXME: alignof differs from the ABI alignment on some architectures
@@ -181,7 +182,7 @@ extension UInt64 : CVarArgType, _CVarArgAlignedType {
     return _encodeBitsAsWords(self)
   }
 
-  /// Return the required alignment in bytes of 
+  /// Returns the required alignment in bytes of 
   /// the value returned by `_cVarArgEncoding`.
   public var _cVarArgAlignment: Int {
     // FIXME: alignof differs from the ABI alignment on some architectures
@@ -237,6 +238,7 @@ extension UnsafeMutablePointer : CVarArgType {
   }
 }
 
+#if _runtime(_ObjC)
 extension AutoreleasingUnsafeMutablePointer : CVarArgType {
   /// Transform `self` into a series of machine words that can be
   /// appropriately interpreted by C varargs.
@@ -244,6 +246,7 @@ extension AutoreleasingUnsafeMutablePointer : CVarArgType {
     return _encodeBitsAsWords(self)
   }
 }
+#endif
 
 extension Float : _CVarArgPassedAsDouble, _CVarArgAlignedType {
   /// Transform `self` into a series of machine words that can be
@@ -252,7 +255,7 @@ extension Float : _CVarArgPassedAsDouble, _CVarArgAlignedType {
     return _encodeBitsAsWords(Double(self))
   }
 
-  /// Return the required alignment in bytes of 
+  /// Returns the required alignment in bytes of 
   /// the value returned by `_cVarArgEncoding`.
   public var _cVarArgAlignment: Int {
     // FIXME: alignof differs from the ABI alignment on some architectures
@@ -267,7 +270,7 @@ extension Double : _CVarArgPassedAsDouble, _CVarArgAlignedType {
     return _encodeBitsAsWords(self)
   }
 
-  /// Return the required alignment in bytes of 
+  /// Returns the required alignment in bytes of 
   /// the value returned by `_cVarArgEncoding`.
   public var _cVarArgAlignment: Int {
     // FIXME: alignof differs from the ABI alignment on some architectures
@@ -283,11 +286,11 @@ final public class VaListBuilder {
 
   func append(arg: CVarArgType) {
     // Write alignment padding if necessary.
-    // This is needed on architectures where the ABI alignment of some 
-    // supported vararg type is greater than the alignment of Int.
-    // FIXME: this implementation is not portable because
-    // alignof differs from the ABI alignment on some architectures
-#if os(watchOS) && arch(arm)   // FIXME: rdar://21203036 should be arch(armv7k)
+    // This is needed on architectures where the ABI alignment of some
+    // supported vararg type is greater than the alignment of Int, such
+    // as non-iOS ARM. Note that we can't use alignof because it
+    // differs from ABI alignment on some architectures.
+#if arch(arm) && !os(iOS)
     if let arg = arg as? _CVarArgAlignedType {
       let alignmentInWords = arg._cVarArgAlignment / sizeof(Int)
       let misalignmentInWords = count % alignmentInWords
@@ -330,7 +333,8 @@ final public class VaListBuilder {
     }
 
     for word in words {
-      storage[count++] = word
+      storage[count] = word
+      count += 1
     }
   }
 
@@ -395,12 +399,13 @@ final public class VaListBuilder {
            + (sseRegistersUsed * _x86_64SSERegisterWords)
       for w in encoded {
         storage[startIndex] = w
-        ++startIndex
+        startIndex += 1
       }
-      ++sseRegistersUsed
+      sseRegistersUsed += 1
     }
     else if encoded.count == 1 && gpRegistersUsed < _x86_64CountGPRegisters {
-      storage[gpRegistersUsed++] = encoded[0]
+      storage[gpRegistersUsed] = encoded[0]
+      gpRegistersUsed += 1
     }
     else {
       for w in encoded {
@@ -429,4 +434,3 @@ final public class VaListBuilder {
 
 #endif
 
-#endif // _runtime(_ObjC)

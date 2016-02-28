@@ -12,6 +12,15 @@
 // REQUIRES: optimized_stdlib
 
 import StdlibUnittest
+import StdlibCollectionUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
 
 var SliceTests = TestSuite("CollectionType")
 
@@ -24,8 +33,8 @@ var SliceTests = TestSuite("CollectionType")
 %   mutable=False,
 %   WrapperType='Slice',
 %   name='WithPrefixAndSuffix',
-%   prefix=[ -9999, -9998, -9997, -9996, -9995 ],
-%   suffix=[ -9994, -9993, -9992 ])
+%   prefix=[-9999, -9998, -9997, -9996, -9995],
+%   suffix=[-9994, -9993, -9992])
 ${SliceTest}
 
 runAllTests()

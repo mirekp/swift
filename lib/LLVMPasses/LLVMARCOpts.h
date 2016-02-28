@@ -1,14 +1,16 @@
-//===- LLVMARCOpts.h - LLVM level ARC Opts Utility Declarations -*- C++ -*-===//
+//===--- LLVMARCOpts.h - LLVM level ARC Opts Util. Declarations -*- C++ -*-===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
+#ifndef SWIFT_LLVMPASSES_LLVMARCOPTS_H
+#define SWIFT_LLVMPASSES_LLVMARCOPTS_H
 
 #include "swift/Basic/LLVM.h"
 #include "llvm/IR/Instructions.h"
@@ -62,7 +64,7 @@ enum RT_Kind {
   /// void swift_unknownRelease_n(%swift.refcounted* %P)
   RT_UnknownReleaseN,
 
-  /// void swift_fixLifetime(%swift.refcounted* %P)
+  /// void __swift_fixLifetime(%swift.refcounted* %P)
   RT_FixLifetime,
 
   /// void swift_bridgeRetain(%swift.refcounted* %P)
@@ -112,8 +114,10 @@ inline RT_Kind classifyInstruction(const llvm::Instruction &I) {
     .Case("swift_unknownRetain_n", RT_UnknownRetainN)
     .Case("swift_unknownRelease", RT_UnknownRelease)
     .Case("swift_unknownRelease_n", RT_UnknownReleaseN)
-    .Case("swift_fixLifetime", RT_FixLifetime)
+    .Case("__swift_fixLifetime", RT_FixLifetime)
     .Default(RT_Unknown);
 }
 
 } // end namespace swift
+#endif
+

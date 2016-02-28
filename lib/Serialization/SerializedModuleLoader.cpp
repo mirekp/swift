@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -81,8 +81,9 @@ findModule(ASTContext &ctx, AccessPathElem moduleID,
 
   // FIXME: Which name should we be using here? Do we care about CPU subtypes?
   // FIXME: At the very least, don't hardcode "arch".
-  llvm::SmallString<16> archFile(ctx.LangOpts.getTargetConfigOption("arch"));
-  llvm::SmallString<16> archDocFile(ctx.LangOpts.getTargetConfigOption("arch"));
+  llvm::SmallString<16> archFile{
+      ctx.LangOpts.getPlatformConditionValue("arch")};
+  llvm::SmallString<16> archDocFile{archFile};
   if (!archFile.empty()) {
     archFile += '.';
     archFile += SERIALIZED_MODULE_EXTENSION;
@@ -175,6 +176,8 @@ FileUnit *SerializedModuleLoader::loadAST(
     M.addFile(*fileUnit);
     if (extendedInfo.isTestable())
       M.setTestingEnabled();
+    if (extendedInfo.isResilient())
+      M.setResilienceEnabled();
 
     auto diagLocOrInvalid = diagLoc.getValueOr(SourceLoc());
     err = loadedModuleFile->associateWithFileContext(fileUnit,
@@ -476,10 +479,26 @@ SerializedASTFile::lookupClassMember(Module::AccessPathTy accessPath,
   File.lookupClassMember(accessPath, name, decls);
 }
 
-Optional<BriefAndRawComment>
+void SerializedASTFile::lookupObjCMethods(
+       ObjCSelector selector,
+       SmallVectorImpl<AbstractFunctionDecl *> &results) const {
+  File.lookupObjCMethods(selector, results);
+}
+
+Optional<CommentInfo>
 SerializedASTFile::getCommentForDecl(const Decl *D) const {
   return File.getCommentForDecl(D);
 }
+
+Optional<StringRef>
+SerializedASTFile::getGroupNameForDecl(const Decl *D) const {
+  return File.getGroupNameForDecl(D);
+}
+
+void
+SerializedASTFile::collectAllGroups(std::vector<StringRef> &Names) const {
+  File.collectAllGroups(Names);
+};
 
 void
 SerializedASTFile::getTopLevelDecls(SmallVectorImpl<Decl*> &results) const {

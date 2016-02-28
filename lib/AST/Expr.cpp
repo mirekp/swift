@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -286,6 +286,7 @@ void Expr::propagateLValueAccessKind(AccessKind accessKind,
     LEAF_LVALUE_EXPR(DiscardAssignment)
     LEAF_LVALUE_EXPR(DynamicLookup)
     LEAF_LVALUE_EXPR(OpaqueValue)
+    LEAF_LVALUE_EXPR(EditorPlaceholder)
 
     COMPLETE_PHYSICAL_LVALUE_EXPR(AnyTry, getSubExpr())
     PARTIAL_PHYSICAL_LVALUE_EXPR(BindOptional, getSubExpr())
@@ -313,6 +314,7 @@ void Expr::propagateLValueAccessKind(AccessKind accessKind,
     NON_LVALUE_EXPR(Assign)
     NON_LVALUE_EXPR(DefaultValue)
     NON_LVALUE_EXPR(CodeCompletion)
+    NON_LVALUE_EXPR(ObjCSelector)
 
 #define UNCHECKED_EXPR(KIND, BASE) \
     NON_LVALUE_EXPR(KIND)
@@ -486,6 +488,7 @@ bool Expr::canAppendCallParentheses() const {
   case ExprKind::StringLiteral:
   case ExprKind::InterpolatedStringLiteral:
   case ExprKind::MagicIdentifierLiteral:
+  case ExprKind::ObjCSelector:
     return true;
 
   case ExprKind::ObjectLiteral:
@@ -501,7 +504,6 @@ bool Expr::canAppendCallParentheses() const {
   case ExprKind::SuperRef:
   case ExprKind::Type:
   case ExprKind::OtherConstructorDeclRef:
-  case ExprKind::UnresolvedConstructor:
   case ExprKind::DotSyntaxBaseIgnored:
     return true;
 
@@ -524,7 +526,6 @@ bool Expr::canAppendCallParentheses() const {
   case ExprKind::UnresolvedSpecialize:
   case ExprKind::UnresolvedMember:
   case ExprKind::UnresolvedDot:
-  case ExprKind::UnresolvedSelector:
     return true;
 
   case ExprKind::Sequence:
@@ -841,13 +842,6 @@ StringLiteralExpr::StringLiteralExpr(StringRef Val, SourceRange Range,
       unicode::isSingleExtendedGraphemeCluster(Val);
 }
 
-void DeclRefExpr::setDeclRef(ConcreteDeclRef ref) {
-  if (auto spec = getSpecInfo())
-    spec->D = ref;
-  else
-    DOrSpecialized = ref;
-}
-
 void DeclRefExpr::setSpecialized() {
   if (isSpecialized())
     return;
@@ -872,10 +866,10 @@ ConstructorDecl *OtherConstructorDeclRefExpr::getDecl() const {
 }
 
 MemberRefExpr::MemberRefExpr(Expr *base, SourceLoc dotLoc,
-                             ConcreteDeclRef member, SourceRange nameRange,
+                             ConcreteDeclRef member, DeclNameLoc nameLoc,
                              bool Implicit, AccessSemantics semantics)
   : Expr(ExprKind::MemberRef, Implicit), Base(base),
-    Member(member), DotLoc(dotLoc), NameRange(nameRange) {
+    Member(member), DotLoc(dotLoc), NameLoc(nameLoc) {
    
   MemberRefExprBits.Semantics = (unsigned) semantics;
   MemberRefExprBits.IsSuper = false;
@@ -899,6 +893,7 @@ bool OverloadSetRefExpr::hasBaseObject() const {
 }
 
 SequenceExpr *SequenceExpr::create(ASTContext &ctx, ArrayRef<Expr*> elements) {
+  assert(elements.size() & 1 && "even number of elements in sequence");
   void *Buffer = ctx.Allocate(sizeof(SequenceExpr) +
                               elements.size() * sizeof(Expr*),
                               alignof(SequenceExpr));
@@ -939,19 +934,19 @@ TupleExpr::TupleExpr(SourceLoc LParenLoc, ArrayRef<Expr *> SubExprs,
          ElementNames.size() == ElementNameLocs.size());
 
   // Copy elements.
-  memcpy(getElements().data(), SubExprs.data(), 
-         SubExprs.size() * sizeof(Expr *));
+  std::uninitialized_copy(SubExprs.begin(), SubExprs.end(),
+                          getTrailingObjects<Expr *>());
 
   // Copy element names, if provided.
   if (hasElementNames()) {
-    memcpy(getElementNamesBuffer().data(), ElementNames.data(),
-           ElementNames.size() * sizeof(Identifier));
+    std::uninitialized_copy(ElementNames.begin(), ElementNames.end(),
+                            getTrailingObjects<Identifier>());
   }
 
   // Copy element name locations, if provided.
   if (hasElementNameLocs()) {
-    memcpy(getElementNameLocsBuffer().data(), ElementNameLocs.data(),
-           ElementNameLocs.size() * sizeof(SourceLoc));
+    std::uninitialized_copy(ElementNameLocs.begin(), ElementNameLocs.end(),
+                            getTrailingObjects<SourceLoc>());
   }
 }
 
@@ -962,10 +957,10 @@ TupleExpr *TupleExpr::create(ASTContext &ctx,
                              ArrayRef<SourceLoc> ElementNameLocs,
                              SourceLoc RParenLoc, bool HasTrailingClosure, 
                              bool Implicit, Type Ty) {
-  unsigned size = sizeof(TupleExpr);
-  size += SubExprs.size() * sizeof(Expr*);
-  size += ElementNames.size() * sizeof(Identifier);
-  size += ElementNameLocs.size() * sizeof(SourceLoc);
+  size_t size =
+      totalSizeToAlloc<Expr *, Identifier, SourceLoc>(SubExprs.size(),
+                                                      ElementNames.size(),
+                                                      ElementNameLocs.size());
   void *mem = ctx.Allocate(size, alignof(TupleExpr));
   return new (mem) TupleExpr(LParenLoc, SubExprs, ElementNames, ElementNameLocs,
                              RParenLoc, HasTrailingClosure, Implicit, Ty);
@@ -1064,14 +1059,11 @@ RebindSelfInConstructorExpr::getCalledConstructor(bool &isChainToSuper) const {
   return otherCtorRef;
 }
 
-void AbstractClosureExpr::setParams(Pattern *P) {
-  ParamPattern = P;
+void AbstractClosureExpr::setParameterList(ParameterList *P) {
+  parameterList = P;
   // Change the DeclContext of any parameters to be this closure.
-  if (P) {
-    P->forEachVariable([&](VarDecl *VD) {
-      VD->setDeclContext(this);
-    });
-  }
+  if (P)
+    P->setDeclContextOfParamDecls(this);
 }
 
 
@@ -1146,33 +1138,6 @@ Expr *AutoClosureExpr::getSingleExpressionBody() const {
 
 FORWARD_SOURCE_LOCS_TO(UnresolvedPatternExpr, subPattern)
 
-UnresolvedSelectorExpr::UnresolvedSelectorExpr(Expr *subExpr, SourceLoc dotLoc,
-                                               DeclName name,
-                                               ArrayRef<ComponentLoc> components)
-  : Expr(ExprKind::UnresolvedSelector, /*implicit*/ false),
-    SubExpr(subExpr), DotLoc(dotLoc), Name(name)
-{
-  assert(name.getArgumentNames().size() + 1 == components.size() &&
-         "number of component locs does not match number of name components");
-  auto buf = getComponentsBuf();
-  std::uninitialized_copy(components.begin(), components.end(),
-                          buf.begin());
-}
-
-UnresolvedSelectorExpr *UnresolvedSelectorExpr::create(ASTContext &C,
-             Expr *subExpr, SourceLoc dotLoc,
-             DeclName name,
-             ArrayRef<ComponentLoc> components) {
-  assert(name.getArgumentNames().size() + 1 == components.size() &&
-         "number of component locs does not match number of name components");
-  
-  void *buf = C.Allocate(sizeof(UnresolvedSelectorExpr)
-                           + (name.getArgumentNames().size() + 1)
-                               * sizeof(ComponentLoc),
-                         alignof(UnresolvedSelectorExpr));
-  return ::new (buf) UnresolvedSelectorExpr(subExpr, dotLoc, name, components);
-}
-
 TypeExpr::TypeExpr(TypeLoc TyLoc)
   : Expr(ExprKind::Type, /*implicit*/false), Info(TyLoc) {
   Type Ty = TyLoc.getType();
@@ -1186,13 +1151,27 @@ TypeExpr::TypeExpr(Type Ty)
     setType(MetatypeType::get(Ty, Ty->getASTContext()));
 }
 
+// The type of a TypeExpr is always a metatype type.  Return the instance
+// type or null if not set yet.
+Type TypeExpr::getInstanceType() const {
+  if (!getType() || getType()->is<ErrorType>())
+    return Type();
+  
+  return getType()->castTo<MetatypeType>()->getInstanceType();
+}
+
+
 /// Return a TypeExpr for a simple identifier and the specified location.
-TypeExpr *TypeExpr::createForDecl(SourceLoc Loc, TypeDecl *Decl) {
+TypeExpr *TypeExpr::createForDecl(SourceLoc Loc, TypeDecl *Decl,
+                                  bool isImplicit) {
   ASTContext &C = Decl->getASTContext();
   assert(Loc.isValid());
   auto *Repr = new (C) SimpleIdentTypeRepr(Loc, Decl->getName());
   Repr->setValue(Decl);
-  return new (C) TypeExpr(TypeLoc(Repr, Type()));
+  auto result = new (C) TypeExpr(TypeLoc(Repr, Type()));
+  if (isImplicit)
+    result->setImplicit();
+  return result;
 }
 
 TypeExpr *TypeExpr::createForSpecializedDecl(SourceLoc Loc, TypeDecl *D,

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -59,11 +59,36 @@ private:
   void printDeclNameEndLoc(const Decl *D) override {
     return OtherPrinter.printDeclNameEndLoc(D);
   }
+  void printDeclNameOrSignatureEndLoc(const Decl *D) override {
+    return OtherPrinter.printDeclNameOrSignatureEndLoc(D);
+  }
+  void printTypePre(const TypeLoc &TL) override {
+    return OtherPrinter.printTypePre(TL);
+  }
+  void printTypePost(const TypeLoc &TL) override {
+    return OtherPrinter.printTypePost(TL);
+  }
   void printTypeRef(const TypeDecl *TD, Identifier Name) override {
     return OtherPrinter.printTypeRef(TD, Name);
   }
   void printModuleRef(ModuleEntity Mod, Identifier Name) override {
     return OtherPrinter.printModuleRef(Mod, Name);
+  }
+  void printSynthesizedExtensionPre(const ExtensionDecl *ED,
+                                    const NominalTypeDecl *NTD) override {
+    return OtherPrinter.printSynthesizedExtensionPre(ED, NTD);
+  }
+
+  void printSynthesizedExtensionPost(const ExtensionDecl *ED,
+                                     const NominalTypeDecl *NTD) override {
+    return OtherPrinter.printSynthesizedExtensionPost(ED, NTD);
+  }
+
+  void printNamePre(PrintNameContext Context) override {
+    return OtherPrinter.printNamePre(Context);
+  }
+  void printNamePost(PrintNameContext Context) override {
+    return OtherPrinter.printNamePost(Context);
   }
 
   // Prints regular comments of the header the clang node comes from, until
@@ -115,9 +140,11 @@ getUnderlyingClangModuleForImport(ImportDecl *Import) {
 void swift::ide::printModuleInterface(Module *M,
                                       ModuleTraversalOptions TraversalOptions,
                                       ASTPrinter &Printer,
-                                      const PrintOptions &Options) {
-  printSubmoduleInterface(M, M->getName().str(), TraversalOptions, Printer,
-                          Options);
+                                      const PrintOptions &Options,
+                                      const bool PrintSynthesizedExtensions) {
+  printSubmoduleInterface(M, M->getName().str(), ArrayRef<StringRef>(),
+                          TraversalOptions, Printer, Options,
+                          PrintSynthesizedExtensions);
 }
 
 static void adjustPrintOptions(PrintOptions &AdjustedOptions) {
@@ -133,12 +160,54 @@ static void adjustPrintOptions(PrintOptions &AdjustedOptions) {
   AdjustedOptions.PrintDefaultParameterPlaceholder = true;
 }
 
+void findExtensionsFromConformingProtocols(Decl *D,
+                                           llvm::SmallPtrSetImpl<ExtensionDecl*> &Results) {
+  NominalTypeDecl* NTD = dyn_cast<NominalTypeDecl>(D);
+  if (!NTD || NTD->getKind() == DeclKind::Protocol)
+    return;
+  std::vector<NominalTypeDecl*> Unhandled;
+  auto addTypeLocNominal = [&](TypeLoc TL){
+    if (TL.getType()) {
+      if (auto D = TL.getType()->getAnyNominal()) {
+        Unhandled.push_back(D);
+      }
+    }
+  };
+  for (auto TL : NTD->getInherited()) {
+    addTypeLocNominal(TL);
+  }
+  while(!Unhandled.empty()) {
+    NominalTypeDecl* Back = Unhandled.back();
+    Unhandled.pop_back();
+    for (ExtensionDecl *E : Back->getExtensions()) {
+      if(E->isConstrainedExtension())
+        Results.insert(E);
+      for (auto TL : Back->getInherited()) {
+        addTypeLocNominal(TL);
+      }
+    }
+  }
+}
+
+ArrayRef<StringRef>
+swift::ide::collectModuleGroups(Module *M, std::vector<StringRef> &Scratch) {
+  for (auto File : M->getFiles()) {
+    File->collectAllGroups(Scratch);
+  }
+  std::sort(Scratch.begin(), Scratch.end(), [](StringRef L, StringRef R) {
+    return L.compare_lower(R) < 0;
+  });
+  return llvm::makeArrayRef(Scratch);
+}
+
 void swift::ide::printSubmoduleInterface(
        Module *M,
        ArrayRef<StringRef> FullModuleName,
+       ArrayRef<StringRef> GroupNames,
        ModuleTraversalOptions TraversalOptions,
        ASTPrinter &Printer,
-       const PrintOptions &Options) {
+       const PrintOptions &Options,
+       const bool PrintSynthesizedExtensions) {
   auto AdjustedOptions = Options;
   adjustPrintOptions(AdjustedOptions);
 
@@ -276,6 +345,15 @@ void swift::ide::printSubmoduleInterface(
       continue;
     }
     if (FullModuleName.empty()) {
+      // If group name is given and the decl does not belong to the group, skip it.
+      if (!GroupNames.empty()){
+        if (auto Target = D->getGroupName()) {
+          if (std::find(GroupNames.begin(), GroupNames.end(),
+                        Target.getValue()) != GroupNames.end())
+             SwiftDecls.push_back(D);
+        }
+        continue;
+      }
       // Add Swift decls if we are printing the top-level module.
       SwiftDecls.push_back(D);
     }
@@ -311,22 +389,27 @@ void swift::ide::printSubmoduleInterface(
     return false;
   });
 
-  std::sort(SwiftDecls.begin(), SwiftDecls.end(),
-            [](Decl *LHS, Decl *RHS) -> bool {
-    auto *LHSValue = dyn_cast<ValueDecl>(LHS);
-    auto *RHSValue = dyn_cast<ValueDecl>(RHS);
-    if (LHSValue && RHSValue) {
-      StringRef LHSName = LHSValue->getName().str();
-      StringRef RHSName = RHSValue->getName().str();
-      if (int Ret = LHSName.compare(RHSName))
-        return Ret < 0;
-      // FIXME: this is not sufficient to establish a total order for overloaded
-      // decls.
-      return LHS->getKind() < RHS->getKind();
-    }
+  // If the group name is specified, we sort them according to their source order,
+  // which is the order preserved by getTopLeveDecls.
+  if (GroupNames.empty()) {
+    std::sort(SwiftDecls.begin(), SwiftDecls.end(),
+      [&](Decl *LHS, Decl *RHS) -> bool {
+        auto *LHSValue = dyn_cast<ValueDecl>(LHS);
+        auto *RHSValue = dyn_cast<ValueDecl>(RHS);
 
-    return LHS->getKind() < RHS->getKind();
-  });
+        if (LHSValue && RHSValue) {
+          StringRef LHSName = LHSValue->getName().str();
+          StringRef RHSName = RHSValue->getName().str();
+          if (int Ret = LHSName.compare(RHSName))
+            return Ret < 0;
+          // FIXME: this is not sufficient to establish a total order for overloaded
+          // decls.
+          return LHS->getKind() < RHS->getKind();
+        }
+
+        return LHS->getKind() < RHS->getKind();
+      });
+  }
 
   ASTPrinter *PrinterToUse = &Printer;
 
@@ -380,6 +463,21 @@ void swift::ide::printSubmoduleInterface(
               if (auto N = dyn_cast<NominalTypeDecl>(Sub))
                 SubDecls.push(N);
           }
+          if (!PrintSynthesizedExtensions)
+            continue;
+
+          // Print synthesized extensions.
+          llvm::SmallPtrSet<ExtensionDecl *, 10> ExtensionsFromConformances;
+          findExtensionsFromConformingProtocols(D, ExtensionsFromConformances);
+          AdjustedOptions.initArchetypeTransformerForSynthesizedExtensions(NTD);
+          for (auto ET : ExtensionsFromConformances) {
+            if (!shouldPrint(ET, AdjustedOptions))
+              continue;
+            Printer << "\n";
+            ET->print(Printer, AdjustedOptions);
+            Printer << "\n";
+          }
+          AdjustedOptions.clearArchetypeTransformerForSynthesizedExtensions();
         }
       }
       return true;
@@ -472,7 +570,7 @@ void swift::ide::printSwiftSourceInterface(SourceFile &File,
                                            ASTPrinter &Printer,
                                            const PrintOptions &Options) {
 
-  // We print all comments before the fist line of Swift code.
+  // We print all comments before the first line of Swift code.
   printUntilFirstDeclStarts(File, Printer);
   File.print(Printer, Options);
 }
@@ -493,8 +591,12 @@ void swift::ide::printHeaderInterface(
   };
 
   SmallVector<Decl *, 32> ClangDecls;
+  llvm::SmallPtrSet<Decl *, 32> SeenDecls;
   auto headerReceiver = [&](Decl *D) {
-    ClangDecls.push_back(D);
+    if (SeenDecls.count(D) == 0) {
+      SeenDecls.insert(D);
+      ClangDecls.push_back(D);
+    }
   };
 
   Importer.lookupDeclsFromHeader(Filename, headerFilter, headerReceiver);
@@ -548,19 +650,29 @@ void ClangCommentPrinter::avoidPrintDeclPost(const Decl *D) {
 }
 
 void ClangCommentPrinter::printDeclPre(const Decl *D) {
-  if (auto ClangN = D->getClangNode()) {
-    printCommentsUntil(ClangN);
-    if (shouldPrintNewLineBefore(ClangN)) {
-      *this << "\n";
-      printIndent();
+  // Skip parameters, since we do not gracefully handle nested declarations on a
+  // single line.
+  // FIXME: we should fix that, since it also affects struct members, etc.
+  if (!isa<ParamDecl>(D)) {
+    if (auto ClangN = D->getClangNode()) {
+      printCommentsUntil(ClangN);
+      if (shouldPrintNewLineBefore(ClangN)) {
+        *this << "\n";
+        printIndent();
+      }
+      updateLastEntityLine(ClangN.getSourceRange().getBegin());
     }
-    updateLastEntityLine(ClangN.getSourceRange().getBegin());
   }
   return OtherPrinter.printDeclPre(D);
 }
 
 void ClangCommentPrinter::printDeclPost(const Decl *D) {
   OtherPrinter.printDeclPost(D);
+
+  // Skip parameters; see printDeclPre().
+  if (isa<ParamDecl>(D))
+    return;
+
   for (auto CommentText : PendingComments) {
     *this << " " << ASTPrinter::sanitizeUtf8(CommentText);
   }

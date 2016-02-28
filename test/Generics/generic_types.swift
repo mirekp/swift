@@ -195,12 +195,12 @@ func useNested(ii: Int, hni: HasNested<Int>,
   typealias HNI = HasNested<Int>
   var id = hni.f(1, u: 3.14159)
   id = (2, 3.14159)
-  hni.f(1.5, 3.14159) // expected-error{{cannot convert value of type 'Double' to expected argument type 'Int'}}
+  hni.f(1.5, 3.14159) // expected-error{{missing argument label 'u:' in call}}
+  hni.f(1.5, u: 3.14159) // expected-error{{cannot convert value of type 'Double' to expected argument type 'Int'}}
 
   // Generic constructor of a generic struct
   HNI(1, 2.71828) // expected-warning{{unused}}
-  // FIXME: Should report this error: {{cannot convert the expression's type 'HNI' to type 'Int'}}
-  HNI(1.5, 2.71828) // expected-error{{cannot invoke initializer for type 'HNI' with an argument list of type '(Double, Double)'}} expected-note{{expected an argument list of type '(T, U)'}}
+  HNI(1.5, 2.71828) // expected-error{{'Double' is not convertible to 'Int'}}
 
   // Generic function in a nested generic struct
   var ids = xis.g(1, u: "Hello", v: 3.14159)
@@ -210,7 +210,7 @@ func useNested(ii: Int, hni: HasNested<Int>,
 }
 
 var dfail : Dictionary<Int> // expected-error{{generic type 'Dictionary' specialized with too few type parameters (got 1, but expected 2)}}
-var notgeneric : Int<Float> // expected-error{{cannot specialize non-generic type 'Int'}}
+var notgeneric : Int<Float> // expected-error{{cannot specialize non-generic type 'Int'}}{{21-28=}}
 
 // Check unqualified lookup of inherited types.
 class Foo<T> {
@@ -246,7 +246,7 @@ extension Bar {
   struct Inner2 {
     func f(x: Int) -> Nested {
       return x
-    }    
+    }
   }
   */
 }
@@ -262,7 +262,7 @@ class XArray : ArrayLiteralConvertible {
 
 class YArray : XArray {
   typealias Element = Int
-  required init(arrayLiteral elements: Int...) { 
+  required init(arrayLiteral elements: Int...) {
     super.init()
   }
 }
@@ -291,11 +291,11 @@ class X3 { }
 var x2 : X2<X3> // expected-error{{'X2' requires that 'X3' inherit from 'X1'}}
 
 protocol P {
-  typealias AssocP
+  associatedtype AssocP
 }
 
 protocol Q {
-  typealias AssocQ
+  associatedtype AssocQ
 }
 
 struct X4 : P, Q {
@@ -316,9 +316,18 @@ class Bottom<T : Bottom<Top>> {} // expected-error 2{{type may not reference its
 class X6<T> {
   let d: D<T>
   init(_ value: T) {
-    d = D(value) // expected-error{{cannot invoke initializer for type 'X6<T>.D<_, _>' with an argument list of type '(T)'}} expected-note{{expected an argument list of type '(T2)'}}
+    d = D(value)
   }
   class D<T2> { // expected-error{{generic type 'D' nested in type 'X6' is not allowed}}
     init(_ value: T2) {}
   }
 }
+
+// Invalid inheritance clause
+
+struct UnsolvableInheritance1<T : T.A> {}
+// expected-error@-1 {{inheritance from non-protocol, non-class type 'T.A'}}
+
+struct UnsolvableInheritance2<T : U.A, U : T.A> {}
+// expected-error@-1 {{inheritance from non-protocol, non-class type 'U.A'}}
+// expected-error@-2 {{inheritance from non-protocol, non-class type 'T.A'}}

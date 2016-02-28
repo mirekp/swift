@@ -1,8 +1,8 @@
-//===--- Config.h - Swift Language Platform Configuration ------*- C++ -*--===//
+//===--- Config.h - Swift Language Platform Configuration -------*- C++ -*-===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -59,5 +59,7 @@
 # define SWIFT_ALLOWED_RUNTIME_GLOBAL_CTOR_END
 #endif
 
-#endif // SWIFT_RUNTIME_CONFIG_H
+// Bring in visibility attribute macros
+#include "../../../stdlib/public/SwiftShims/Visibility.h"
 
+#endif // SWIFT_RUNTIME_CONFIG_H

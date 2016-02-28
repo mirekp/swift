@@ -3,11 +3,12 @@ add_swift_library(swiftIDE
   CodeCompletionCache.cpp
   CommentConversion.cpp
   ModuleInterfacePrinting.cpp
+  ReconstructType.cpp
   REPLCodeCompletion.cpp
   SourceEntityWalker.cpp
+  SwiftSourceDocInfo.cpp
   SyntaxModel.cpp
   Utils.cpp
-  SwiftSourceDocInfo.cpp
   LINK_LIBRARIES
     swiftFrontend
     swiftClangImporter

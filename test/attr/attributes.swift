@@ -8,7 +8,7 @@ enum binary {
   init() { self = .Zero }
 }
 
-func f5(inout x: binary) {}
+func f5(x: inout binary) {}
 
 //===---
 //===--- IB attributes
@@ -48,8 +48,6 @@ func foo(x: @convention(block) (Int) -> Int) {}
 
 @_transparent
 func zim() {}
-@_transparent
-func zang()() {} // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
 @_transparent
 func zung<T>(_: T) {}
 @_transparent // expected-error{{@_transparent cannot be applied to stored properties}} {{1-15=}}

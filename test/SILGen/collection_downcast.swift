@@ -25,12 +25,12 @@ struct BridgedSwift : Hashable, _ObjectiveCBridgeable {
 
   static func _forceBridgeFromObjectiveC(
     x: BridgedObjC,
-    inout result: BridgedSwift?
+    result: inout BridgedSwift?
   ) {
   }
   static func _conditionallyBridgeFromObjectiveC(
     x: BridgedObjC,
-    inout result: BridgedSwift?
+    result: inout BridgedSwift?
   ) -> Bool {
     return true
   }
@@ -49,14 +49,14 @@ func testArrayDowncast(array: [AnyObject]) -> [BridgedObjC] {
 // CHECK-LABEL: sil hidden @_TF19collection_downcast27testArrayDowncastFromObject
 // CHECK: bb0([[OBJ:%[0-9]+]] : $AnyObject):
 func testArrayDowncastFromObject(obj: AnyObject) -> [BridgedObjC] {
-  // CHECK: unconditional_checked_cast_addr take_always AnyObject in [[OBJECT_ALLOC:%[0-9]+]]#1 : $*AnyObject to Array<BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]]#1 : $*Array<BridgedObjC>
+  // CHECK: unconditional_checked_cast_addr take_always AnyObject in [[OBJECT_ALLOC:%[0-9]+]] : $*AnyObject to Array<BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]] : $*Array<BridgedObjC>
   return obj as! [BridgedObjC]
 }
 
 // CHECK-LABEL: sil hidden @_TF19collection_downcast28testArrayDowncastFromNSArray
 // CHECK: bb0([[NSARRAY_OBJ:%[0-9]+]] : $NSArray):
 func testArrayDowncastFromNSArray(obj: NSArray) -> [BridgedObjC] {
-  // CHECK: unconditional_checked_cast_addr take_always NSArray in [[OBJECT_ALLOC:%[0-9]+]]#1 : $*NSArray to Array<BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]]#1 : $*Array<BridgedObjC>
+  // CHECK: unconditional_checked_cast_addr take_always NSArray in [[OBJECT_ALLOC:%[0-9]+]] : $*NSArray to Array<BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]] : $*Array<BridgedObjC>
   return obj as! [BridgedObjC]
 }
 
@@ -104,7 +104,7 @@ func testArrayIsaBridged(array: [AnyObject]) -> Bool {
 // CHECK: bb0([[OBJ:%[0-9]+]] : $AnyObject):
 func testDictionaryDowncastFromObject(obj: AnyObject) 
        -> Dictionary<BridgedObjC, BridgedObjC> {
-  // CHECK: unconditional_checked_cast_addr take_always AnyObject in [[OBJECT_ALLOC:%[0-9]+]]#1 : $*AnyObject to Dictionary<BridgedObjC, BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]]#1 : $*Dictionary<BridgedObjC, BridgedObjC>
+  // CHECK: unconditional_checked_cast_addr take_always AnyObject in [[OBJECT_ALLOC:%[0-9]+]] : $*AnyObject to Dictionary<BridgedObjC, BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]] : $*Dictionary<BridgedObjC, BridgedObjC>
   return obj as! Dictionary<BridgedObjC, BridgedObjC>
 }
 
@@ -131,7 +131,7 @@ func testDictionaryDowncastConditional(dict: Dictionary<NSObject, AnyObject>)
 func testDictionaryDowncastBridgedVConditional(dict: Dictionary<NSObject, AnyObject>) 
        -> Dictionary<BridgedObjC, BridgedSwift>? {
   // CHECK: [[BRIDGE_FN:%[0-9]+]] = function_ref @_TFs42_dictionaryBridgeFromObjectiveCConditional
-  // CHECK-NEXT: apply [[BRIDGE_FN]]<NSObject, AnyObject, BridgedObjC, BridgedSwift>([[DICT]]) : $@convention(thin) <τ_0_0, τ_0_1, τ_0_2, τ_0_3 where τ_0_0 : Hashable, τ_0_2 : Hashable> (@owned Dictionary<τ_0_0, τ_0_1>) -> @owned Optional<Dictionary<τ_0_2, τ_0_3>> // user: %6
+  // CHECK-NEXT: apply [[BRIDGE_FN]]<NSObject, AnyObject, BridgedObjC, BridgedSwift>([[DICT]]) : $@convention(thin) <τ_0_0, τ_0_1, τ_0_2, τ_0_3 where τ_0_0 : Hashable, τ_0_2 : Hashable> (@owned Dictionary<τ_0_0, τ_0_1>) -> @owned Optional<Dictionary<τ_0_2, τ_0_3>>{{.*}} // user: %6
   return dict as? Dictionary<BridgedObjC, BridgedSwift>
 }
 
@@ -166,7 +166,7 @@ func testDictionaryDowncastBridgedKVConditional(dict: Dictionary<NSObject, AnyOb
 // CHECK: bb0([[OBJ:%[0-9]+]] : $AnyObject):
 func testSetDowncastFromObject(obj: AnyObject) 
        -> Set<BridgedObjC> {
-  // CHECK: unconditional_checked_cast_addr take_always AnyObject in [[OBJECT_ALLOC:%[0-9]+]]#1 : $*AnyObject to Set<BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]]#1 : $*Set<BridgedObjC>
+  // CHECK: unconditional_checked_cast_addr take_always AnyObject in [[OBJECT_ALLOC:%[0-9]+]] : $*AnyObject to Set<BridgedObjC> in [[VALUE_ALLOC:%[0-9]+]] : $*Set<BridgedObjC>
   return obj as! Set<BridgedObjC>
 }
 

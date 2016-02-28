@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -64,6 +64,9 @@ public:
   /// The compilation directory for the debug info.
   std::string DebugCompilationDir;
 
+  /// The DWARF version of debug info.
+  unsigned DWARFVersion;
+
   /// The command line string that is to be stored in the DWARF debug info.
   std::string DWARFDebugFlags;
 
@@ -123,8 +126,21 @@ public:
   /// Instrument code to generate profiling information.
   unsigned GenerateProfile : 1;
 
+  /// Print the LLVM inline tree at the end of the LLVM pass pipeline.
+  unsigned PrintInlineTree : 1;
+
   /// Whether we should embed the bitcode file.
   IRGenEmbedMode EmbedMode : 2;
+
+  /// Add names to LLVM values.
+  unsigned HasValueNamesSetting : 1;
+  unsigned ValueNames : 1;
+
+  /// Only strip the field names section from nominal type field metadata.
+  unsigned StripReflectionNames : 1;
+
+  /// Strip all nominal type field metadata.
+  unsigned StripReflectionMetadata : 1;
 
   /// List of backend command-line options for -embed-bitcode.
   std::vector<uint8_t> CmdArgs;
@@ -135,14 +151,27 @@ public:
                    DisableLLVMARCOpts(false), DisableLLVMSLPVectorizer(false),
                    DisableFPElim(true), Playground(false),
                    EmitStackPromotionChecks(false), GenerateProfile(false),
-                   EmbedMode(IRGenEmbedMode::None) {}
-  
+                   PrintInlineTree(false), EmbedMode(IRGenEmbedMode::None),
+                   HasValueNamesSetting(false), ValueNames(false),
+                   StripReflectionNames(true), StripReflectionMetadata(true)
+                   {}
+
   /// Gets the name of the specified output filename.
   /// If multiple files are specified, the last one is returned.
   StringRef getSingleOutputFilename() const {
     if (OutputFilenames.size() >= 1)
       return OutputFilenames.back();
     return StringRef();
+  }
+
+  // Get a hash of all options which influence the llvm compilation but are not
+  // reflected in the llvm module itself.
+  unsigned getLLVMCodeGenOptionsHash() {
+    unsigned Hash = 0;
+    Hash = (Hash << 1) | Optimize;
+    Hash = (Hash << 1) | DisableLLVMOptzns;
+    Hash = (Hash << 1) | DisableLLVMARCOpts;
+    return Hash;
   }
 };
 

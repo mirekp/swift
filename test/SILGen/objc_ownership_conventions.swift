@@ -36,7 +36,7 @@ func test5(g: Gizmo) {
   // CHECK:      [[CLASS:%.*]] = metatype $@thick Gizmo.Type
   // CHECK-NEXT: [[METHOD:%.*]] = class_method [volatile] [[CLASS]] : {{.*}}, #Gizmo.inspect!1.foreign
   // CHECK-NEXT: [[OBJC_CLASS:%[0-9]+]] = thick_to_objc_metatype [[CLASS]] : $@thick Gizmo.Type to $@objc_metatype Gizmo.Type
-  // CHECK:      [[V:%.*]] = load %2#1
+  // CHECK:      [[V:%.*]] = load
   // CHECK:      strong_retain [[V]]
   // CHECK:      [[G:%.*]] = enum $ImplicitlyUnwrappedOptional<Gizmo>, #ImplicitlyUnwrappedOptional.Some!enumelt.1, [[V]]
   // CHECK-NEXT: apply [[METHOD]]([[G]], [[OBJC_CLASS]])
@@ -50,7 +50,7 @@ func test6(g: Gizmo) {
   // CHECK:      [[CLASS:%.*]] = metatype $@thick Gizmo.Type
   // CHECK-NEXT: [[METHOD:%.*]] = class_method [volatile] [[CLASS]] : {{.*}}, #Gizmo.consume!1.foreign
   // CHECK-NEXT: [[OBJC_CLASS:%.*]] = thick_to_objc_metatype [[CLASS]] : $@thick Gizmo.Type to $@objc_metatype Gizmo.Type
-  // CHECK:      [[V:%.*]] = load %2#1
+  // CHECK:      [[V:%.*]] = load
   // CHECK:      strong_retain [[V]]
   // CHECK:      [[G:%.*]] = enum $ImplicitlyUnwrappedOptional<Gizmo>, #ImplicitlyUnwrappedOptional.Some!
   // CHECK-NEXT: apply [[METHOD]]([[G]], [[OBJC_CLASS]])
@@ -97,7 +97,6 @@ func test9(g: Gizmo) -> Gizmo {
   // CHECK: alloc_stack
   // CHECK-NEXT: [[METHOD:%.*]] = class_method [volatile] [[G]] : {{.*}}, #Gizmo.duplicate!1.foreign
   // CHECK-NEXT: [[RESULT:%.*]] = apply [[METHOD]]([[G]])
-  // CHECK-NEXT: retain_autoreleased [[RESULT]]
   // CHECK-NEXT: store [[RESULT]]
   // CHECK-NEXT: function_ref
   // CHECK-NEXT: function_ref @_TFs36_getImplicitlyUnwrappedOptionalValue
@@ -112,7 +111,7 @@ func test9(g: Gizmo) -> Gizmo {
 }
 
 // CHECK-LABEL: sil hidden @_TF26objc_ownership_conventions6test10
-func test10(g: Gizmo) -> AnyClass {
+func test10(let g: Gizmo) -> AnyClass {
   // CHECK: bb0([[G:%[0-9]+]] : $Gizmo):
   // CHECK:      strong_retain [[G]]
   // CHECK-NEXT: [[NS_G:%[0-9]+]] = upcast [[G:%[0-9]+]] : $Gizmo to $NSObject
@@ -123,8 +122,8 @@ func test10(g: Gizmo) -> AnyClass {
   // CHECK-NEXT: [[THICK:%.*]] = objc_to_thick_metatype [[OBJC]]
   // CHECK:      [[T0:%.*]] = enum $ImplicitlyUnwrappedOptional<AnyObject.Type>, #ImplicitlyUnwrappedOptional.Some!enumelt.1, [[THICK]]
   // CHECK:      [[T0:%.*]] = function_ref @_TFs36_getImplicitlyUnwrappedOptionalValue
-  // CHECK:      apply [[T0]]<AnyObject.Type>([[THICK_BUF:%.*]]#1, {{.*}})
-  // CHECK-NEXT: [[RES:%.*]] = load [[THICK_BUF]]#1
+  // CHECK:      apply [[T0]]<AnyObject.Type>([[THICK_BUF:%[0-9]*]], {{.*}})
+  // CHECK-NEXT: [[RES:%.*]] = load [[THICK_BUF]]
   // CHECK:      strong_release [[G]] : $Gizmo
   // CHECK:      strong_release [[G]] : $Gizmo
   // CHECK-NEXT: return [[RES]] : $@thick AnyObject.Type
@@ -132,7 +131,7 @@ func test10(g: Gizmo) -> AnyClass {
 }
 
 // CHECK-LABEL: sil hidden @_TF26objc_ownership_conventions6test11
-func test11(g: Gizmo) -> AnyClass {
+func test11(let g: Gizmo) -> AnyClass {
   // CHECK: bb0([[G:%[0-9]+]] : $Gizmo):
   // CHECK: strong_retain [[G]]
   // CHECK: [[NS_G:%[0-9]+]] = upcast [[G:%[0-9]+]] : $Gizmo to $NSObject
@@ -143,8 +142,8 @@ func test11(g: Gizmo) -> AnyClass {
   // CHECK-NEXT: [[THICK:%.*]] = objc_to_thick_metatype [[OBJC]]
   // CHECK:      [[T0:%.*]] = enum $ImplicitlyUnwrappedOptional<AnyObject.Type>, #ImplicitlyUnwrappedOptional.Some!enumelt.1, [[THICK]]
   // CHECK:      [[T0:%.*]] = function_ref @_TFs36_getImplicitlyUnwrappedOptionalValue
-  // CHECK:      apply [[T0]]<AnyObject.Type>([[THICK_BUF:%.*]]#1, {{.*}})
-  // CHECK-NEXT: [[RES:%.*]] = load [[THICK_BUF]]#1
+  // CHECK:      apply [[T0]]<AnyObject.Type>([[THICK_BUF:%[0-9]*]], {{.*}})
+  // CHECK-NEXT: [[RES:%.*]] = load [[THICK_BUF]]
   // CHECK:      strong_release [[G]] : $Gizmo
   // CHECK:      strong_release [[G]] : $Gizmo
   // CHECK-NEXT: return [[RES]] : $@thick AnyObject.Type
@@ -159,7 +158,6 @@ func applyBlock(f: @convention(block) Gizmo -> Gizmo, x: Gizmo) -> Gizmo {
   // CHECK:       [[BLOCK_COPY:%.*]] = copy_block [[BLOCK]]
   // CHECK:       strong_retain [[BLOCK_COPY]]
   // CHECK:       [[RESULT:%.*]] = apply [[BLOCK_COPY]]([[ARG]])
-  // CHECK:       strong_retain_autoreleased [[RESULT]]
   // CHECK:       strong_release [[BLOCK_COPY]]
   // CHECK:       strong_release [[ARG]]
   // CHECK:       strong_release [[BLOCK_COPY]]

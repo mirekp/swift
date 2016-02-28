@@ -9,11 +9,11 @@ import Foundation
 // cleanups/no cleanups, single / multiple return locations.
 
 // RUN: FileCheck %s --check-prefix=CHECK_NONE < %t.ll
-// CHECK_NONE: define void {{.*}}none
-public func none(inout a: Int64) {
+// CHECK_NONE: define{{( protected)?}} void {{.*}}none
+public func none(a: inout Int64) {
   // CHECK_NONE: call void @llvm.dbg{{.*}}, !dbg
   // CHECK_NONE: !dbg ![[NONE_INIT:.*]]
-  a -= 2;
+  a -= 2
   // CHECK_NONE: ret {{.*}}, !dbg ![[NONE_RET:.*]]
   // CHECK_NONE: ![[NONE_INIT]] = !DILocation(line: [[@LINE-2]], column:
   // CHECK_NONE: ![[NONE_RET]] = !DILocation(line: [[@LINE+1]], column: 1,
@@ -21,14 +21,14 @@ public func none(inout a: Int64) {
 
 // RUN: FileCheck %s --check-prefix=CHECK_EMPTY < %t.ll
 // CHECK_EMPTY: define {{.*}}empty
-public func empty(inout a: Int64) {
+public func empty(a: inout Int64) {
   if a > 24 {
       // CHECK-DAG_EMPTY: br {{.*}}, !dbg ![[EMPTY_RET1:.*]]
       // CHECK-DAG_EMPTY_RET1: ![[EMPTY_RET1]] = !DILocation(line: [[@LINE+1]], column: 6,
       return
   }
 
-  a -= 2;
+  a -= 2
   // CHECK-DAG_EMPTY: br {{.*}}, !dbg ![[EMPTY_RET2:.*]]
   // CHECK-DAG_EMPTY_RET2: ![[EMPTY_RET]] = !DILocation(line: [[@LINE+1]], column: 3,
   return
@@ -38,12 +38,12 @@ public func empty(inout a: Int64) {
 
 // RUN: FileCheck %s --check-prefix=CHECK_EMPTY_NONE < %t.ll
 // CHECK_EMPTY_NONE: define {{.*}}empty_none
-public func empty_none(inout a: Int64) {
+public func empty_none(a: inout Int64) {
   if a > 24 {
-      return;
+      return
   }
 
-  a -= 2;
+  a -= 2
   // CHECK_EMPTY_NONE: ret {{.*}}, !dbg ![[EMPTY_NONE_RET:.*]]
   // CHECK_EMPTY_NONE: ![[EMPTY_NONE_RET]] = !DILocation(line: [[@LINE+1]], column: 1,
 }
@@ -52,7 +52,7 @@ public func empty_none(inout a: Int64) {
 // CHECK_SIMPLE_RET: define {{.*}}simple
 public func simple(a: Int64) -> Int64 {
   if a > 24 {
-      return 0;
+      return 0
   }
   return 1
   // CHECK_SIMPLE_RET: ret i{{.*}}, !dbg ![[SIMPLE_RET:.*]]
@@ -98,7 +98,7 @@ public func simple_complex(a: Int64) -> Int64 {
 
 // RUN: FileCheck %s --check-prefix=CHECK_CLEANUP_NONE < %t.ll
 // CHECK_CLEANUP_NONE: define {{.*}}cleanup_none
-public func cleanup_none(inout a: NSString) {
+public func cleanup_none(a: inout NSString) {
   a = "empty"
   // CHECK_CLEANUP_NONE: ret void, !dbg ![[CLEANUP_NONE_RET:.*]]
   // CHECK_CLEANUP_NONE: ![[CLEANUP_NONE_RET]] = !DILocation(line: [[@LINE+1]], column: 1,
@@ -106,9 +106,9 @@ public func cleanup_none(inout a: NSString) {
 
 // RUN: FileCheck %s --check-prefix=CHECK_CLEANUP_EMPTY < %t.ll
 // CHECK_CLEANUP_EMPTY: define {{.*}}cleanup_empty
-public func cleanup_empty(inout a: NSString) {
+public func cleanup_empty(a: inout NSString) {
   if a.length > 24 {
-      return;
+      return
     }
 
   a = "empty"
@@ -119,9 +119,9 @@ public func cleanup_empty(inout a: NSString) {
 
 // RUN: FileCheck %s --check-prefix=CHECK_CLEANUP_EMPTY_NONE < %t.ll
 // CHECK_CLEANUP_EMPTY_NONE: define {{.*}}cleanup_empty_none
-public func cleanup_empty_none(inout a: NSString) {
+public func cleanup_empty_none(a: inout NSString) {
   if a.length > 24 {
-      return;
+      return
     }
 
   a = "empty"

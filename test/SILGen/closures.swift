@@ -5,14 +5,22 @@ import Swift
 var zero = 0
 
 // <rdar://problem/15921334>
-// CHECK-LABEL: sil hidden @_TF8closures46return_local_generic_function_without_captures{{.*}} : $@convention(thin) <A, R> () -> @owned @callee_owned (@out R, @in A) -> () {
+// CHECK-LABEL: sil hidden @_TF8closures46return_local_generic_function_without_captures{{.*}} : $@convention(thin) <A, R> () -> @owned @callee_owned (@in A) -> @out R {
 func return_local_generic_function_without_captures<A, R>() -> A -> R {
   func f(_: A) -> R {
     Builtin.int_trap()
   }
-  // CHECK:  [[FN:%.*]] = function_ref @_TFF8closures46return_local_generic_function_without_captures{{.*}} : $@convention(thin) <τ_0_0, τ_0_1> (@out τ_0_1, @in τ_0_0) -> ()
-  // CHECK:  [[FN_WITH_GENERIC_PARAMS:%.*]] = partial_apply [[FN]]<A, R>() : $@convention(thin) <τ_0_0, τ_0_1> (@out τ_0_1, @in τ_0_0) -> ()
-  // CHECK:  return [[FN_WITH_GENERIC_PARAMS]] : $@callee_owned (@out R, @in A) -> ()
+  // CHECK:  [[FN:%.*]] = function_ref @_TFF8closures46return_local_generic_function_without_captures{{.*}} : $@convention(thin) <τ_0_0, τ_0_1> (@in τ_0_0) -> @out τ_0_1
+  // CHECK:  [[FN_WITH_GENERIC_PARAMS:%.*]] = partial_apply [[FN]]<A, R>() : $@convention(thin) <τ_0_0, τ_0_1> (@in τ_0_0) -> @out τ_0_1
+  // CHECK:  return [[FN_WITH_GENERIC_PARAMS]] : $@callee_owned (@in A) -> @out R
+  return f
+}
+
+func return_local_generic_function_with_captures<A, R>(a: A) -> A -> R {
+  func f(_: A) -> R {
+    _ = a
+  }
+
   return f
 }
 
@@ -27,14 +35,15 @@ func read_only_capture(x: Int) -> Int {
   }
 
   return cap()
-  // CHECK: [[CAP:%[0-9]+]] = function_ref @[[CAP_NAME:_TFF8closures17read_only_capture.*]] : $@convention(thin) (@owned @box Int, @inout Int) -> Int
-  // CHECK: [[RET:%[0-9]+]] = apply [[CAP]]([[XBOX]]#0, [[XBOX]]#1)
-  // CHECK: release [[XBOX]]#0
+  // CHECK: [[CAP:%[0-9]+]] = function_ref @[[CAP_NAME:_TFF8closures17read_only_capture.*]] : $@convention(thin) (@owned @box Int) -> Int
+  // CHECK: [[RET:%[0-9]+]] = apply [[CAP]]([[XBOX]])
+  // CHECK: release [[XBOX]]
   // CHECK: return [[RET]]
 }
 
 // CHECK: sil shared @[[CAP_NAME]]
-// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int, [[XADDR:%[0-9]+]] : $*Int):
+// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int):
+// CHECK: [[XADDR:%[0-9]+]] = project_box [[XBOX]]
 // CHECK: [[X:%[0-9]+]] = load [[XADDR]]
 // CHECK: release [[XBOX]]
 // CHECK: return [[X]]
@@ -45,6 +54,7 @@ func write_to_capture(x: Int) -> Int {
   // CHECK: bb0([[X:%[0-9]+]] : $Int):
   // CHECK: [[XBOX:%[0-9]+]] = alloc_box $Int
   // CHECK: [[X2BOX:%[0-9]+]] = alloc_box $Int
+  // CHECK: [[PB:%.*]] = project_box [[X2BOX]]
   var x2 = x
 
   func scribble() {
@@ -52,17 +62,18 @@ func write_to_capture(x: Int) -> Int {
   }
 
   scribble()
-  // CHECK: [[SCRIB:%[0-9]+]] = function_ref @[[SCRIB_NAME:_TFF8closures16write_to_capture.*]] : $@convention(thin) (@owned @box Int, @inout Int) -> ()
-  // CHECK: apply [[SCRIB]]([[X2BOX]]#0, [[X2BOX]]#1)
-  // CHECK: [[RET:%[0-9]+]] = load [[X2BOX]]#1
-  // CHECK: release [[X2BOX]]#0
-  // CHECK: release [[XBOX]]#0
+  // CHECK: [[SCRIB:%[0-9]+]] = function_ref @[[SCRIB_NAME:_TFF8closures16write_to_capture.*]] : $@convention(thin) (@owned @box Int) -> ()
+  // CHECK: apply [[SCRIB]]([[X2BOX]])
+  // CHECK: [[RET:%[0-9]+]] = load [[PB]]
+  // CHECK: release [[X2BOX]]
+  // CHECK: release [[XBOX]]
   // CHECK: return [[RET]]
   return x2
 }
 
 // CHECK: sil shared @[[SCRIB_NAME]]
-// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int, [[XADDR:%[0-9]+]] : $*Int):
+// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int):
+// CHECK: [[XADDR:%[0-9]+]] = project_box [[XBOX]]
 // CHECK: copy_addr {{%[0-9]+}} to [[XADDR]]
 // CHECK: release [[XBOX]]
 // CHECK: return
@@ -75,9 +86,9 @@ func multiple_closure_refs(x: Int) -> (() -> Int, () -> Int) {
   }
 
   return (cap, cap)
-  // CHECK: [[CAP:%[0-9]+]] = function_ref @[[CAP_NAME:_TFF8closures21multiple_closure_refs.*]] : $@convention(thin) (@owned @box Int, @inout Int) -> Int
+  // CHECK: [[CAP:%[0-9]+]] = function_ref @[[CAP_NAME:_TFF8closures21multiple_closure_refs.*]] : $@convention(thin) (@owned @box Int) -> Int
   // CHECK: [[CAP_CLOSURE_1:%[0-9]+]] = partial_apply [[CAP]]
-  // CHECK: [[CAP:%[0-9]+]] = function_ref @[[CAP_NAME:_TFF8closures21multiple_closure_refs.*]] : $@convention(thin) (@owned @box Int, @inout Int) -> Int
+  // CHECK: [[CAP:%[0-9]+]] = function_ref @[[CAP_NAME:_TFF8closures21multiple_closure_refs.*]] : $@convention(thin) (@owned @box Int) -> Int
   // CHECK: [[CAP_CLOSURE_2:%[0-9]+]] = partial_apply [[CAP]]
   // CHECK: [[RET:%[0-9]+]] = tuple ([[CAP_CLOSURE_1]] : {{.*}}, [[CAP_CLOSURE_2]] : {{.*}})
   // CHECK: return [[RET]]
@@ -91,20 +102,20 @@ func capture_local_func(x: Int) -> () -> () -> Int {
   func aleph() -> Int { return x }
 
   func beth() -> () -> Int { return aleph }
-  // CHECK: [[BETH_REF:%[0-9]+]] = function_ref @[[BETH_NAME:_TFF8closures18capture_local_funcFSiFT_FT_SiL_4bethfT_FT_Si]] : $@convention(thin) (@owned @box Int, @inout Int) -> @owned @callee_owned () -> Int
-  // CHECK: [[BETH_CLOSURE:%[0-9]+]] = partial_apply [[BETH_REF]]([[XBOX]]#0, [[XBOX]]#1)
+  // CHECK: [[BETH_REF:%[0-9]+]] = function_ref @[[BETH_NAME:_TFF8closures18capture_local_funcFSiFT_FT_SiL_4bethfT_FT_Si]] : $@convention(thin) (@owned @box Int) -> @owned @callee_owned () -> Int
+  // CHECK: [[BETH_CLOSURE:%[0-9]+]] = partial_apply [[BETH_REF]]([[XBOX]])
 
   return beth
-  // CHECK: release [[XBOX]]#0
+  // CHECK: release [[XBOX]]
   // CHECK: return [[BETH_CLOSURE]]
 }
 // CHECK: sil shared @[[ALEPH_NAME:_TFF8closures18capture_local_funcFSiFT_FT_SiL_5alephfT_Si]]
-// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int, [[XADDR:%[0-9]+]] : $*Int):
+// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int):
 
 // CHECK: sil shared @[[BETH_NAME]]
-// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int, [[XADDR:%[0-9]+]] : $*Int):
-// CHECK: [[ALEPH_REF:%[0-9]+]] = function_ref @[[ALEPH_NAME]] : $@convention(thin) (@owned @box Int, @inout Int) -> Int
-// CHECK: [[ALEPH_CLOSURE:%[0-9]+]] = partial_apply [[ALEPH_REF]]([[XBOX]], [[XADDR]])
+// CHECK: bb0([[XBOX:%[0-9]+]] : $@box Int):
+// CHECK: [[ALEPH_REF:%[0-9]+]] = function_ref @[[ALEPH_NAME]] : $@convention(thin) (@owned @box Int) -> Int
+// CHECK: [[ALEPH_CLOSURE:%[0-9]+]] = partial_apply [[ALEPH_REF]]([[XBOX]])
 // CHECK: return [[ALEPH_CLOSURE]]
 
 // CHECK-LABEL: sil hidden @_TF8closures22anon_read_only_capture
@@ -112,14 +123,15 @@ func anon_read_only_capture(x: Int) -> Int {
   var x = x
   // CHECK: bb0([[X:%[0-9]+]] : $Int):
   // CHECK: [[XBOX:%[0-9]+]] = alloc_box $Int
+  // CHECK: [[PB:%.*]] = project_box [[XBOX]]
 
   return ({ x })()
   // -- func expression
-  // CHECK: [[ANON:%[0-9]+]] = function_ref @[[CLOSURE_NAME:_TFF8closures22anon_read_only_capture.*]] : $@convention(thin) (@inout Int) -> Int
+  // CHECK: [[ANON:%[0-9]+]] = function_ref @[[CLOSURE_NAME:_TFF8closures22anon_read_only_capture.*]] : $@convention(thin) (@inout_aliasable Int) -> Int
   // -- apply expression
-  // CHECK: [[RET:%[0-9]+]] = apply [[ANON]]([[XBOX]]#1)
+  // CHECK: [[RET:%[0-9]+]] = apply [[ANON]]([[PB]])
   // -- cleanup
-  // CHECK: release [[XBOX]]#0
+  // CHECK: release [[XBOX]]
   // CHECK: return [[RET]]
 }
 // CHECK: sil shared @[[CLOSURE_NAME]]
@@ -132,14 +144,15 @@ func small_closure_capture(x: Int) -> Int {
   var x = x
   // CHECK: bb0([[X:%[0-9]+]] : $Int):
   // CHECK: [[XBOX:%[0-9]+]] = alloc_box $Int
+  // CHECK: [[PB:%.*]] = project_box [[XBOX]]
 
   return { x }()
   // -- func expression
-  // CHECK: [[ANON:%[0-9]+]] = function_ref @[[CLOSURE_NAME:_TFF8closures21small_closure_capture.*]] : $@convention(thin) (@inout Int) -> Int
+  // CHECK: [[ANON:%[0-9]+]] = function_ref @[[CLOSURE_NAME:_TFF8closures21small_closure_capture.*]] : $@convention(thin) (@inout_aliasable Int) -> Int
   // -- apply expression
-  // CHECK: [[RET:%[0-9]+]] = apply [[ANON]]([[XBOX]]#1)
+  // CHECK: [[RET:%[0-9]+]] = apply [[ANON]]([[PB]])
   // -- cleanup
-  // CHECK: release [[XBOX]]#0
+  // CHECK: release [[XBOX]]
   // CHECK: return [[RET]]
 }
 // CHECK: sil shared @[[CLOSURE_NAME]]
@@ -155,15 +168,16 @@ func small_closure_capture_with_argument(x: Int) -> (y: Int) -> Int {
 
   return { x + $0 }
   // -- func expression
-  // CHECK: [[ANON:%[0-9]+]] = function_ref @[[CLOSURE_NAME:_TFF8closures35small_closure_capture_with_argument.*]] : $@convention(thin) (Int, @owned @box Int, @inout Int) -> Int
-  // CHECK: retain [[XBOX]]#0
-  // CHECK: [[ANON_CLOSURE_APP:%[0-9]+]] = partial_apply [[ANON]]([[XBOX]]#0, [[XBOX]]#1)
+  // CHECK: [[ANON:%[0-9]+]] = function_ref @[[CLOSURE_NAME:_TFF8closures35small_closure_capture_with_argument.*]] : $@convention(thin) (Int, @owned @box Int) -> Int
+  // CHECK: retain [[XBOX]]
+  // CHECK: [[ANON_CLOSURE_APP:%[0-9]+]] = partial_apply [[ANON]]([[XBOX]])
   // -- return
-  // CHECK: release [[XBOX]]#0
+  // CHECK: release [[XBOX]]
   // CHECK: return [[ANON_CLOSURE_APP]]
 }
-// CHECK: sil shared @[[CLOSURE_NAME]] : $@convention(thin) (Int, @owned @box Int, @inout Int) -> Int
-// CHECK: bb0([[DOLLAR0:%[0-9]+]] : $Int, [[XBOX:%[0-9]+]] : $@box Int, [[XADDR:%[0-9]+]] : $*Int):
+// CHECK: sil shared @[[CLOSURE_NAME]] : $@convention(thin) (Int, @owned @box Int) -> Int
+// CHECK: bb0([[DOLLAR0:%[0-9]+]] : $Int, [[XBOX:%[0-9]+]] : $@box Int):
+// CHECK: [[XADDR:%[0-9]+]] = project_box [[XBOX]]
 // CHECK: [[PLUS:%[0-9]+]] = function_ref @_TZFsoi1pFTSiSi_Si{{.*}}
 // CHECK: [[LHS:%[0-9]+]] = load [[XADDR]]
 // CHECK: [[RET:%[0-9]+]] = apply [[PLUS]]([[LHS]], [[DOLLAR0]])
@@ -186,7 +200,8 @@ func uncaptured_locals(x: Int) -> (Int, Int) {
   // -- locals without captures are stack-allocated
   // CHECK: bb0([[XARG:%[0-9]+]] : $Int):
   // CHECK:   [[XADDR:%[0-9]+]] = alloc_box $Int
-  // CHECK:   store [[XARG]] to [[XADDR]]
+  // CHECK:   [[PB:%.*]] = project_box [[XADDR]]
+  // CHECK:   store [[XARG]] to [[PB]]
 
   var y = zero
   // CHECK:   [[YADDR:%[0-9]+]] = alloc_box $Int
@@ -206,8 +221,8 @@ class SomeClass {
 class SomeGenericClass<T> {
   deinit {
     var i: Int = zero
-    // CHECK: [[C1REF:%[0-9]+]] = function_ref @_TFFC8closures16SomeGenericClassdU_FT_Si : $@convention(thin) (@inout Int) -> Int
-    // CHECK: apply [[C1REF]]([[IBOX:%[0-9]+]]#1) : $@convention(thin) (@inout Int) -> Int
+    // CHECK: [[C1REF:%[0-9]+]] = function_ref @_TFFC8closures16SomeGenericClassdU_FT_Si : $@convention(thin) (@inout_aliasable Int) -> Int
+    // CHECK: apply [[C1REF]]([[IBOX:%[0-9]+]]) : $@convention(thin) (@inout_aliasable Int) -> Int
     var x = { i + zero } ()
 
     // CHECK: [[C2REF:%[0-9]+]] = function_ref @_TFFC8closures16SomeGenericClassdU0_FT_Si : $@convention(thin) () -> Int
@@ -219,7 +234,7 @@ class SomeGenericClass<T> {
     var z = { _ = T.self } ()
   }
 
-  // CHECK-LABEL: sil shared @_TFFC8closures16SomeGenericClassdU_FT_Si : $@convention(thin) (@inout Int) -> Int
+  // CHECK-LABEL: sil shared @_TFFC8closures16SomeGenericClassdU_FT_Si : $@convention(thin) (@inout_aliasable Int) -> Int
 
   // CHECK-LABEL: sil shared @_TFFC8closures16SomeGenericClassdU0_FT_Si : $@convention(thin) () -> Int
 
@@ -236,7 +251,7 @@ func generateWithConstant(x : SomeSpecificClass) {
 }
 // CHECK-LABEL: sil shared @_TFF8closures20generateWithConstant
 // CHECK:    bb0([[T0:%.*]] : $SomeSpecificClass):
-// CHECK-NEXT: debug_value %0 : $SomeSpecificClass // let x, argno: 1
+// CHECK-NEXT: debug_value %0 : $SomeSpecificClass, let, name "x", argno 1
 // CHECK-NEXT: [[T1:%.*]] = upcast [[T0]] : $SomeSpecificClass to $SomeClass
 // CHECK-NEXT: return [[T1]]
 
@@ -300,13 +315,13 @@ func closeOverLetLValue() {
 // is loadable even though we capture the value.
 // CHECK-LABEL: sil shared @_TFF8closures18closeOverLetLValueFT_T_U_FT_Si
 // CHECK: bb0(%0 : $ClassWithIntProperty):
-// CHECK-NEXT: [[TMP:%.*]] = alloc_stack $ClassWithIntProperty  // let a, argno: 1
-// CHECK-NEXT: store %0 to [[TMP]]#1 : $*ClassWithIntProperty
-// CHECK-NEXT: {{.*}} = load [[TMP]]#1 : $*ClassWithIntProperty
+// CHECK-NEXT: [[TMP:%.*]] = alloc_stack $ClassWithIntProperty, let, name "a", argno 1
+// CHECK-NEXT: store %0 to [[TMP]] : $*ClassWithIntProperty
+// CHECK-NEXT: {{.*}} = load [[TMP]] : $*ClassWithIntProperty
 // CHECK-NEXT: {{.*}} = ref_element_addr {{.*}} : $ClassWithIntProperty, #ClassWithIntProperty.x
 // CHECK-NEXT: {{.*}} = load {{.*}} : $*Int
-// CHECK-NEXT: destroy_addr [[TMP]]#1 : $*ClassWithIntProperty
-// CHECK-NEXT: dealloc_stack %1#0 : $*@local_storage ClassWithIntProperty
+// CHECK-NEXT: destroy_addr [[TMP]] : $*ClassWithIntProperty
+// CHECK-NEXT: dealloc_stack %1 : $*ClassWithIntProperty
 // CHECK-NEXT:  return
 
 
@@ -328,13 +343,14 @@ struct StructWithMutatingMethod {
 
 // CHECK-LABEL: sil hidden @_TFV8closures24StructWithMutatingMethod14mutatingMethod
 // CHECK: bb0(%0 : $*StructWithMutatingMethod):
-// CHECK-NEXT: %1 = alloc_box $StructWithMutatingMethod  // var self, argno: 1 // users: %2, %5, %7, %8
-// CHECK-NEXT: copy_addr %0 to [initialization] %1#1 : $*StructWithMutatingMethod // id: %2
-// CHECK: [[CLOSURE:%[0-9]+]] = function_ref @_TFFV8closures24StructWithMutatingMethod14mutatingMethod{{.*}} : $@convention(thin) (@inout StructWithMutatingMethod) -> Int
-// CHECK: partial_apply [[CLOSURE]](%1#1) : $@convention(thin) (@inout StructWithMutatingMethod) -> Int
+// CHECK-NEXT: %1 = alloc_box $StructWithMutatingMethod, var, name "self", argno 1
+// CHECK-NEXT: %2 = project_box %1
+// CHECK-NEXT: copy_addr %0 to [initialization] %2 : $*StructWithMutatingMethod
+// CHECK: [[CLOSURE:%[0-9]+]] = function_ref @_TFFV8closures24StructWithMutatingMethod14mutatingMethod{{.*}} : $@convention(thin) (@inout_aliasable StructWithMutatingMethod) -> Int
+// CHECK: partial_apply [[CLOSURE]](%2) : $@convention(thin) (@inout_aliasable StructWithMutatingMethod) -> Int
 
 // Check that the closure body only takes the pointer.
-// CHECK-LABEL: sil shared @_TFFV8closures24StructWithMutatingMethod14mutatingMethod{{.*}} : $@convention(thin) (@inout StructWithMutatingMethod) -> Int {
+// CHECK-LABEL: sil shared @_TFFV8closures24StructWithMutatingMethod14mutatingMethod{{.*}} : $@convention(thin) (@inout_aliasable StructWithMutatingMethod) -> Int {
 // CHECK:       bb0(%0 : $*StructWithMutatingMethod):
 
 class SuperBase {
@@ -352,7 +368,7 @@ class SuperSub : SuperBase {
     // CHECK: [[CLASS_METHOD:%.*]] = class_method %0 : $SuperSub, #SuperSub.boom!1
     // CHECK: = apply [[CLASS_METHOD]](%0)
     // CHECK: [[SUPER:%.*]] = upcast %0 : $SuperSub to $SuperBase
-    // CHECK: [[SUPER_METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boom
+    // CHECK: [[SUPER_METHOD:%[0-9]+]] = function_ref @_TFC8closures9SuperBase4boomfT_T_ : $@convention(method) (@guaranteed SuperBase) -> ()
     // CHECK: = apply [[SUPER_METHOD]]([[SUPER]])
     // CHECK: return
     func a1() {
@@ -376,8 +392,8 @@ class SuperSub : SuperBase {
       // CHECK: [[CLASS_METHOD:%.*]] = class_method %0 : $SuperSub, #SuperSub.boom!1
       // CHECK: = apply [[CLASS_METHOD]](%0)
       // CHECK: [[SUPER:%.*]] = upcast %0 : $SuperSub to $SuperBase
-      // CHECK: [[METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boom
-      // CHECK: = apply [[METHOD]]([[SUPER]])
+      // CHECK: [[SUPER_METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boomfT_T_ : $@convention(method) (@guaranteed SuperBase) -> ()
+      // CHECK: = apply [[SUPER_METHOD]]([[SUPER]])
       // CHECK: return
       func b2() {
         self.boom()
@@ -397,8 +413,8 @@ class SuperSub : SuperBase {
     // CHECK: [[CLASS_METHOD:%.*]] = class_method %0 : $SuperSub, #SuperSub.boom!1
     // CHECK: = apply [[CLASS_METHOD]](%0)
     // CHECK: [[SUPER:%.*]] = upcast %0 : $SuperSub to $SuperBase
-    // CHECK: [[METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boom
-    // CHECK: = apply [[METHOD]]([[SUPER]])
+    // CHECK: [[SUPER_METHOD:%[0-9]+]] = function_ref @_TFC8closures9SuperBase4boomfT_T_ : $@convention(method) (@guaranteed SuperBase) -> ()
+    // CHECK: = apply [[SUPER_METHOD]]([[SUPER]])
     // CHECK: return
     let c1 = { () -> Void in
       self.boom()
@@ -419,8 +435,8 @@ class SuperSub : SuperBase {
     let d1 = { () -> Void in
       // CHECK-LABEL: sil shared @_TFFFC8closures8SuperSub1d
       // CHECK: [[SUPER:%.*]] = upcast %0 : $SuperSub to $SuperBase
-      // CHECK: [[METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boom
-      // CHECK: = apply [[METHOD]]([[SUPER]])
+      // CHECK: [[SUPER_METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boomfT_T_ : $@convention(method) (@guaranteed SuperBase) -> ()
+      // CHECK: = apply [[SUPER_METHOD]]([[SUPER]])
       // CHECK: return
       func d2() {
         super.boom()
@@ -442,8 +458,8 @@ class SuperSub : SuperBase {
     func e1() {
       // CHECK-LABEL: sil shared @_TFFFC8closures8SuperSub1e
       // CHECK: [[SUPER:%.*]] = upcast %0 : $SuperSub to $SuperBase
-      // CHECK: [[METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boom
-      // CHECK: = apply [[METHOD]]([[SUPER]])
+      // CHECK: [[SUPER_METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boomfT_T_ : $@convention(method) (@guaranteed SuperBase) -> ()
+      // CHECK: = apply [[SUPER_METHOD]]([[SUPER]])
       // CHECK: return
       let e2 = {
         super.boom()
@@ -465,8 +481,8 @@ class SuperSub : SuperBase {
     let f1 = {
       // CHECK-LABEL: sil shared [transparent] @_TFFFC8closures8SuperSub1f
       // CHECK: [[SUPER:%.*]] = upcast %0 : $SuperSub to $SuperBase
-      // CHECK: [[METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boom
-      // CHECK: = apply [[METHOD]]([[SUPER]])
+      // CHECK: [[SUPER_METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boomfT_T_ : $@convention(method) (@guaranteed SuperBase) -> ()
+      // CHECK: = apply [[SUPER_METHOD]]([[SUPER]])
       // CHECK: return
       nil ?? super.boom()
     }
@@ -484,8 +500,8 @@ class SuperSub : SuperBase {
     func g1() {
       // CHECK-LABEL: sil shared [transparent] @_TFFFC8closures8SuperSub1g
       // CHECK: [[SUPER:%.*]] = upcast %0 : $SuperSub to $SuperBase
-      // CHECK: [[METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boom
-      // CHECK: = apply [[METHOD]]([[SUPER]])
+      // CHECK: [[SUPER_METHOD:%.*]] = function_ref @_TFC8closures9SuperBase4boomfT_T_ : $@convention(method) (@guaranteed SuperBase) -> ()
+      // CHECK: = apply [[SUPER_METHOD]]([[SUPER]])
       // CHECK: return
       nil ?? super.boom()
     }
@@ -495,12 +511,13 @@ class SuperSub : SuperBase {
 
 // CHECK-LABEL: sil hidden @_TFC8closures24UnownedSelfNestedCapture13nestedCapture{{.*}} : $@convention(method) (@guaranteed UnownedSelfNestedCapture) -> ()
 // CHECK:         [[OUTER_SELF_CAPTURE:%.*]] = alloc_box $@sil_unowned UnownedSelfNestedCapture
+// CHECK:         [[PB:%.*]] = project_box [[OUTER_SELF_CAPTURE]]
 // CHECK:         [[UNOWNED_SELF:%.*]] = ref_to_unowned [[SELF_PARAM:%.*]] :
 // -- TODO: A lot of fussy r/r traffic and owned/unowned conversions here.
 // -- strong +1, unowned +1
 // CHECK:         unowned_retain [[UNOWNED_SELF]]
-// CHECK:         store [[UNOWNED_SELF]] to [[OUTER_SELF_CAPTURE]]
-// CHECK:         [[UNOWNED_SELF:%.*]] = load [[OUTER_SELF_CAPTURE]]
+// CHECK:         store [[UNOWNED_SELF]] to [[PB]]
+// CHECK:         [[UNOWNED_SELF:%.*]] = load [[PB]]
 // -- strong +2, unowned +1
 // CHECK:         strong_retain_unowned [[UNOWNED_SELF]]
 // CHECK:         [[SELF:%.*]] = unowned_to_ref [[UNOWNED_SELF]]

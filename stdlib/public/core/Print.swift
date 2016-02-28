@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -19,7 +19,7 @@
 ///
 /// - Note: To print without a trailing newline, pass `terminator: ""`
 ///
-/// - SeeAlso: `debugPrint`, Streamable`, `CustomStringConvertible`,
+/// - SeeAlso: `debugPrint`, `Streamable`, `CustomStringConvertible`,
 ///   `CustomDebugStringConvertible`
 @inline(never)
 @_semantics("stdlib_binary_only")
@@ -28,6 +28,11 @@ public func print(
   separator: String = " ",
   terminator: String = "\n"
 ) {
+#if os(Windows)
+  // FIXME: This fix is for 'crash at hook(output.left)' in cygwin.
+  //        Proper fix is needed. see: https://bugs.swift.org/browse/SR-612
+  let _playgroundPrintHook: ((String)->Void)? = nil
+#endif
   if let hook = _playgroundPrintHook {
     var output = _TeeStream(left: "", right: _Stdout())
     _print(
@@ -50,7 +55,7 @@ public func print(
 ///
 /// - Note: To print without a trailing newline, pass `terminator: ""`
 ///
-/// - SeeAlso: `print`, Streamable`, `CustomStringConvertible`,
+/// - SeeAlso: `print`, `Streamable`, `CustomStringConvertible`,
 ///   `CustomDebugStringConvertible`
 @inline(never)
 @_semantics("stdlib_binary_only")
@@ -79,14 +84,14 @@ public func debugPrint(
 ///
 /// - Note: To print without a trailing newline, pass `terminator: ""`
 ///
-/// - SeeAlso: `debugPrint`, Streamable`, `CustomStringConvertible`,
+/// - SeeAlso: `debugPrint`, `Streamable`, `CustomStringConvertible`,
 ///   `CustomDebugStringConvertible`
 @inline(__always)
 public func print<Target: OutputStreamType>(
   items: Any...,
   separator: String = " ",
   terminator: String = "\n",
-  inout toStream output: Target
+  toStream output: inout Target
 ) {
   _print(items, separator: separator, terminator: terminator, toStream: &output)
 }
@@ -100,14 +105,14 @@ public func print<Target: OutputStreamType>(
 ///
 /// - Note: To print without a trailing newline, pass `terminator: ""`
 ///
-/// - SeeAlso: `print`, Streamable`, `CustomStringConvertible`,
+/// - SeeAlso: `print`, `Streamable`, `CustomStringConvertible`,
 ///   `CustomDebugStringConvertible`
 @inline(__always)
 public func debugPrint<Target: OutputStreamType>(
   items: Any...,
   separator: String = " ",
   terminator: String = "\n",
-  inout toStream output: Target
+  toStream output: inout Target
 ) {
   _debugPrint(
     items, separator: separator, terminator: terminator, toStream: &output)
@@ -119,17 +124,17 @@ internal func _print<Target: OutputStreamType>(
   items: [Any],
   separator: String = " ",
   terminator: String = "\n",
-  inout toStream output: Target
+  toStream output: inout Target
 ) {
   var prefix = ""
   output._lock()
+  defer { output._unlock() }
   for item in items {
     output.write(prefix)
     _print_unlocked(item, &output)
     prefix = separator
   }
   output.write(terminator)
-  output._unlock()
 }
 
 @inline(never)
@@ -138,44 +143,39 @@ internal func _debugPrint<Target: OutputStreamType>(
   items: [Any],
   separator: String = " ",
   terminator: String = "\n",
-  inout toStream output: Target
+  toStream output: inout Target
 ) {
   var prefix = ""
   output._lock()
+  defer { output._unlock() }
   for item in items {
     output.write(prefix)
     _debugPrint_unlocked(item, &output)
     prefix = separator
   }
   output.write(terminator)
-  output._unlock()
 }
 
 //===----------------------------------------------------------------------===//
 //===--- Migration Aids ---------------------------------------------------===//
 
-@available(*, unavailable, message="Please wrap your tuple argument in parentheses: 'print((...))'")
-public func print<T>(_: T) {}
-@available(*, unavailable, message="Please wrap your tuple argument in parentheses: 'debugPrint((...))'")
-public func debugPrint<T>(_: T) {}
-
 @available(*, unavailable, message="Please use 'terminator: \"\"' instead of 'appendNewline: false': 'print((...), terminator: \"\")'")
-public func print<T>(_: T, appendNewline: Bool) {}
+public func print<T>(_: T, appendNewline: Bool = true) {}
 @available(*, unavailable, message="Please use 'terminator: \"\"' instead of 'appendNewline: false': 'debugPrint((...), terminator: \"\")'")
-public func debugPrint<T>(_: T, appendNewline: Bool) {}
+public func debugPrint<T>(_: T, appendNewline: Bool = true) {}
 
 
 //===--- FIXME: Not working due to <rdar://22101775> ----------------------===//
 @available(*, unavailable, message="Please use the 'toStream' label for the target stream: 'print((...), toStream: &...)'")
-public func print<T>(_: T, inout _: OutputStreamType) {}
+public func print<T>(_: T, _: inout OutputStreamType) {}
 @available(*, unavailable, message="Please use the 'toStream' label for the target stream: 'debugPrint((...), toStream: &...))'")
-public func debugPrint<T>(_: T, inout _: OutputStreamType) {}
+public func debugPrint<T>(_: T, _: inout OutputStreamType) {}
 
 @available(*, unavailable, message="Please use 'terminator: \"\"' instead of 'appendNewline: false' and use the 'toStream' label for the target stream: 'print((...), terminator: \"\", toStream: &...)'")
-public func print<T>(_: T, inout _: OutputStreamType, appendNewline: Bool) {}
+public func print<T>(_: T, _: inout OutputStreamType, appendNewline: Bool = true) {}
 @available(*, unavailable, message="Please use 'terminator: \"\"' instead of 'appendNewline: false' and use the 'toStream' label for the target stream: 'debugPrint((...), terminator: \"\", toStream: &...)'")
 public func debugPrint<T>(
-  _: T, inout _: OutputStreamType, appendNewline: Bool
+  _: T, _: inout OutputStreamType, appendNewline: Bool = true
 ) {}
 //===----------------------------------------------------------------------===//
 //===----------------------------------------------------------------------===//

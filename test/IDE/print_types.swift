@@ -8,9 +8,9 @@ typealias MyInt = Int
 // CHECK: TypeAliasDecl '''MyInt''' MyInt.Type{{$}}
 // FULL:  TypeAliasDecl '''MyInt''' swift_ide_test.MyInt.Type{{$}}
 
-func testVariableTypes(param: Int, inout param2: Double) {
-// CHECK: FuncDecl '''testVariableTypes''' (Int, inout param2: Double) -> (){{$}}
-// FULL:  FuncDecl '''testVariableTypes''' (Swift.Int, inout param2: Swift.Double) -> (){{$}}
+func testVariableTypes(param: Int, param2: inout Double) {
+// CHECK: FuncDecl '''testVariableTypes''' (Int, param2: inout Double) -> (){{$}}
+// FULL:  FuncDecl '''testVariableTypes''' (Swift.Int, param2: inout Swift.Double) -> (){{$}}
 
   var a1 = 42
 // CHECK: VarDecl '''a1''' Int{{$}}
@@ -99,13 +99,13 @@ func testVariadicFuncType(a: Int, b: Float...) {}
 // CHECK: FuncDecl '''testVariadicFuncType''' (Int, b: Float...) -> (){{$}}
 // FULL:  FuncDecl '''testVariadicFuncType''' (Swift.Int, b: Swift.Float...) -> (){{$}}
 
-func testCurriedFuncType1(a: Int)(b: Float) {} // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
+func testCurriedFuncType1(a: Int) -> (b: Float) -> () {}
 // CHECK: FuncDecl '''testCurriedFuncType1''' (Int) -> (b: Float) -> (){{$}}
 // FULL:  FuncDecl '''testCurriedFuncType1''' (Swift.Int) -> (b: Swift.Float) -> (){{$}}
 
 protocol FooProtocol {}
 protocol BarProtocol {}
-protocol QuxProtocol { typealias Qux }
+protocol QuxProtocol { associatedtype Qux }
 
 struct GenericStruct<A, B : FooProtocol> {}
 

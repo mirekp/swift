@@ -3,6 +3,15 @@
 
 import StdlibUnittest
 
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+import SwiftPrivatePthreadExtras
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
+
 _setTestSuiteFailedCallback() { print("abort()") }
 
 struct RaceTest1 : RaceTestWithPerTrialDataType {
@@ -25,7 +34,7 @@ struct RaceTest1 : RaceTestWithPerTrialDataType {
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     switch RaceTest1.iterationCountdown.fetchAndAdd(-1) {
     case 0:

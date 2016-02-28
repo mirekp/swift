@@ -37,7 +37,7 @@ func forgotCall() {
   f6(f4, f2) // expected-error{{function produces expected type 'B'; did you mean to call it with '()'?}}{{8-8=()}}
 
   // With overloading: only one succeeds.
-  a = createB // expected-error{{ambiguous reference to member 'createB'}}
+  a = createB // expected-error{{ambiguous reference to member 'createB()'}}
 
   // With overloading, pick the fewest number of fixes.
   var b = f7(f4, f1) // expected-error{{function produces expected type 'B'; did you mean to call it with '()'?}}
@@ -72,7 +72,7 @@ func forgotAnyObjectBang(obj: AnyObject) {
   _ = a
 }
 
-func increment(inout x: Int) { }
+func increment(x: inout Int) { }
 
 func forgotAmpersand() {
   var i = 5
@@ -86,7 +86,7 @@ func maybeFn() -> (Int -> Int)? { }
 
 func extraCall() {
   var i = 7
-  i = i() // expected-error{{invalid use of '()' to call a value of non-function type 'Int'}}{{8-10=}}
+  i = i() // expected-error{{cannot call value of non-function type 'Int'}}
 
   maybeFn()(5) // expected-error{{value of optional type '(Int -> Int)?' not unwrapped; did you mean to use '!' or '?'?}}{{12-12=!}}
 }

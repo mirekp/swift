@@ -1,8 +1,8 @@
-//===--- GenTypes.cpp - Swift IR Generation For Types ---------------------===//
+//===--- GenType.cpp - Swift IR Generation For Types ----------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -40,7 +40,6 @@
 #include "ProtocolInfo.h"
 #include "ReferenceTypeInfo.h"
 #include "ScalarTypeInfo.h"
-#include "UnownedTypeInfo.h"
 #include "WeakTypeInfo.h"
 
 using namespace swift;
@@ -51,275 +50,27 @@ TypeConverter::Types_t::getCacheFor(TypeBase *t) {
   return t->hasTypeParameter() ? DependentCache : IndependentCache;
 }
 
-Address TypeInfo::initializeBufferWithTake(IRGenFunction &IGF,
-                                           Address destBuffer,
-                                           Address srcAddr,
-                                           SILType T) const {
-  Address destAddr = emitAllocateBuffer(IGF, T, destBuffer);
-  initializeWithTake(IGF, destAddr, srcAddr, T);
-  return destAddr;
+void TypeInfo:: assign(IRGenFunction &IGF, Address dest, Address src,
+                       IsTake_t isTake, SILType T) const {
+  if (isTake) {
+    assignWithTake(IGF, dest, src, T);
+  } else {
+    assignWithCopy(IGF, dest, src, T);
+  }
 }
 
-Address TypeInfo::initializeBufferWithCopy(IRGenFunction &IGF,
-                                           Address destBuffer,
-                                           Address srcAddr,
-                                           SILType T) const {
-  Address destAddr = emitAllocateBuffer(IGF, T, destBuffer);
-  initializeWithCopy(IGF, destAddr, srcAddr, T);
-  return destAddr;
+void TypeInfo::initialize(IRGenFunction &IGF, Address dest, Address src,
+                          IsTake_t isTake, SILType T) const {
+  if (isTake) {
+    initializeWithTake(IGF, dest, src, T);
+  } else {
+    initializeWithCopy(IGF, dest, src, T);
+  }
 }
 
-
-bool TypeInfo::isSingleRetainablePointer(ResilienceScope scope,
+bool TypeInfo::isSingleRetainablePointer(ResilienceExpansion expansion,
                                          ReferenceCounting *refcounting) const {
   return false;
-}
-
-FixedPacking TypeInfo::getFixedPacking(IRGenModule &IGM) const {
-  auto fixedTI = dyn_cast<FixedTypeInfo>(this);
-  
-  // If the type isn't fixed, we have to do something dynamic.
-  // FIXME: some types are provably too big (or aligned) to be
-  // allocated inline.
-  if (!fixedTI)
-    return FixedPacking::Dynamic;
-  
-  Size bufferSize = getFixedBufferSize(IGM);
-  Size requiredSize = fixedTI->getFixedSize();
-  
-  // Flat out, if we need more space than the buffer provides,
-  // we always have to allocate.
-  // FIXME: there might be some interesting cases where this
-  // is suboptimal for enums.
-  if (requiredSize > bufferSize)
-    return FixedPacking::Allocate;
-  
-  Alignment bufferAlign = getFixedBufferAlignment(IGM);
-  Alignment requiredAlign = fixedTI->getFixedAlignment();
-  
-  // If the buffer alignment is good enough for the type, great.
-  if (bufferAlign >= requiredAlign)
-    return FixedPacking::OffsetZero;
-  
-  // TODO: consider using a slower mode that dynamically checks
-  // whether the buffer size is small enough.
-  
-  // Otherwise we're stuck and have to separately allocate.
-  return FixedPacking::Allocate;
-}
-
-Address TypeInfo::indexArray(IRGenFunction &IGF, Address base,
-                             llvm::Value *index, SILType T) const {
-  // The stride of a Swift type may not match its LLVM size. If we know we have
-  // a fixed stride different from our size, or we have a dynamic size,
-  // do a byte-level GEP with the proper stride.
-  const FixedTypeInfo *fixedTI = dyn_cast<FixedTypeInfo>(this);
-  
-  Address dest;
-  // TODO: Arrays currently lower-bound the stride to 1.
-  if (!fixedTI
-      || std::max(Size(1), fixedTI->getFixedStride()) != fixedTI->getFixedSize()) {
-    llvm::Value *byteAddr = IGF.Builder.CreateBitCast(base.getAddress(),
-                                                      IGF.IGM.Int8PtrTy);
-    llvm::Value *size = getStride(IGF, T);
-    if (size->getType() != index->getType())
-      size = IGF.Builder.CreateZExtOrTrunc(size, index->getType());
-    llvm::Value *distance = IGF.Builder.CreateNSWMul(index, size);
-    llvm::Value *destValue = IGF.Builder.CreateInBoundsGEP(byteAddr, distance);
-    destValue = IGF.Builder.CreateBitCast(destValue, base.getType());
-    return Address(destValue, base.getAlignment());
-  } else {
-    // We don't expose a non-inbounds GEP operation.
-    llvm::Value *destValue = IGF.Builder.CreateInBoundsGEP(base.getAddress(),
-                                                           index);
-    return Address(destValue, base.getAlignment());
-  }
-}
-
-void TypeInfo::destroyArray(IRGenFunction &IGF, Address array,
-                            llvm::Value *count, SILType T) const {
-  if (isPOD(ResilienceScope::Component))
-    return;
-  
-  auto entry = IGF.Builder.GetInsertBlock();
-  auto iter = IGF.createBasicBlock("iter");
-  auto loop = IGF.createBasicBlock("loop");
-  auto exit = IGF.createBasicBlock("exit");
-  IGF.Builder.CreateBr(iter);
-  IGF.Builder.emitBlock(iter);
-  
-  auto counter = IGF.Builder.CreatePHI(IGF.IGM.SizeTy, 2);
-  counter->addIncoming(count, entry);
-  auto elementVal = IGF.Builder.CreatePHI(array.getType(), 2);
-  elementVal->addIncoming(array.getAddress(), entry);
-  Address element(elementVal, array.getAlignment());
-  
-  auto done = IGF.Builder.CreateICmpEQ(counter,
-                                     llvm::ConstantInt::get(IGF.IGM.SizeTy, 0));
-  IGF.Builder.CreateCondBr(done, exit, loop);
-  
-  IGF.Builder.emitBlock(loop);
-  destroy(IGF, element, T);
-  auto nextCounter = IGF.Builder.CreateSub(counter,
-                                   llvm::ConstantInt::get(IGF.IGM.SizeTy, 1));
-  auto nextElement = indexArray(IGF, element,
-                                llvm::ConstantInt::get(IGF.IGM.SizeTy, 1), T);
-  auto loopEnd = IGF.Builder.GetInsertBlock();
-  counter->addIncoming(nextCounter, loopEnd);
-  elementVal->addIncoming(nextElement.getAddress(), loopEnd);
-  IGF.Builder.CreateBr(iter);
-  
-  IGF.Builder.emitBlock(exit);
-}
-
-/// Build a value witness that initializes an array front-to-back.
-void irgen::emitInitializeArrayFrontToBack(IRGenFunction &IGF,
-                                           const TypeInfo &type,
-                                           Address destArray,
-                                           Address srcArray,
-                                           llvm::Value *count,
-                                           SILType T,
-                                           IsTake_t take) {
-  auto &IGM = IGF.IGM;
-                   
-  auto entry = IGF.Builder.GetInsertBlock();
-  auto iter = IGF.createBasicBlock("iter");
-  auto loop = IGF.createBasicBlock("loop");
-  auto exit = IGF.createBasicBlock("exit");
-  IGF.Builder.CreateBr(iter);
-  IGF.Builder.emitBlock(iter);
-  
-  auto counter = IGF.Builder.CreatePHI(IGM.SizeTy, 2);
-  counter->addIncoming(count, entry);
-  auto destVal = IGF.Builder.CreatePHI(destArray.getType(), 2);
-  destVal->addIncoming(destArray.getAddress(), entry);
-  auto srcVal = IGF.Builder.CreatePHI(srcArray.getType(), 2);
-  srcVal->addIncoming(srcArray.getAddress(), entry);
-  Address dest(destVal, destArray.getAlignment());
-  Address src(srcVal, srcArray.getAlignment());
-  
-  auto done = IGF.Builder.CreateICmpEQ(counter,
-                                       llvm::ConstantInt::get(IGM.SizeTy, 0));
-  IGF.Builder.CreateCondBr(done, exit, loop);
-  
-  IGF.Builder.emitBlock(loop);
-  if (take)
-    type.initializeWithTake(IGF, dest, src, T);
-  else
-    type.initializeWithCopy(IGF, dest, src, T);
-
-  auto nextCounter = IGF.Builder.CreateSub(counter,
-                                   llvm::ConstantInt::get(IGM.SizeTy, 1));
-  auto nextDest = type.indexArray(IGF, dest,
-                                  llvm::ConstantInt::get(IGM.SizeTy, 1), T);
-  auto nextSrc = type.indexArray(IGF, src,
-                                 llvm::ConstantInt::get(IGM.SizeTy, 1), T);
-  auto loopEnd = IGF.Builder.GetInsertBlock();
-  counter->addIncoming(nextCounter, loopEnd);
-  destVal->addIncoming(nextDest.getAddress(), loopEnd);
-  srcVal->addIncoming(nextSrc.getAddress(), loopEnd);
-  IGF.Builder.CreateBr(iter);
-  
-  IGF.Builder.emitBlock(exit);
-}
-
-/// Build a value witness that initializes an array back-to-front.
-void irgen::emitInitializeArrayBackToFront(IRGenFunction &IGF,
-                                           const TypeInfo &type,
-                                           Address destArray,
-                                           Address srcArray,
-                                           llvm::Value *count,
-                                           SILType T,
-                                           IsTake_t take) {
-  auto &IGM = IGF.IGM;
-  
-  auto destEnd = type.indexArray(IGF, destArray, count, T);
-  auto srcEnd = type.indexArray(IGF, srcArray, count, T);
-  
-  auto entry = IGF.Builder.GetInsertBlock();
-  auto iter = IGF.createBasicBlock("iter");
-  auto loop = IGF.createBasicBlock("loop");
-  auto exit = IGF.createBasicBlock("exit");
-  IGF.Builder.CreateBr(iter);
-  IGF.Builder.emitBlock(iter);
-  
-  auto counter = IGF.Builder.CreatePHI(IGM.SizeTy, 2);
-  counter->addIncoming(count, entry);
-  auto destVal = IGF.Builder.CreatePHI(destEnd.getType(), 2);
-  destVal->addIncoming(destEnd.getAddress(), entry);
-  auto srcVal = IGF.Builder.CreatePHI(srcEnd.getType(), 2);
-  srcVal->addIncoming(srcEnd.getAddress(), entry);
-  Address dest(destVal, destArray.getAlignment());
-  Address src(srcVal, srcArray.getAlignment());
-  
-  auto done = IGF.Builder.CreateICmpEQ(counter,
-                                       llvm::ConstantInt::get(IGM.SizeTy, 0));
-  IGF.Builder.CreateCondBr(done, exit, loop);
-  
-  IGF.Builder.emitBlock(loop);
-  auto prevDest = type.indexArray(IGF, dest,
-                              llvm::ConstantInt::getSigned(IGM.SizeTy, -1), T);
-  auto prevSrc = type.indexArray(IGF, src,
-                              llvm::ConstantInt::getSigned(IGM.SizeTy, -1), T);
-  
-  if (take)
-    type.initializeWithTake(IGF, prevDest, prevSrc, T);
-  else
-    type.initializeWithCopy(IGF, prevDest, prevSrc, T);
-  
-  auto nextCounter = IGF.Builder.CreateSub(counter,
-                                   llvm::ConstantInt::get(IGM.SizeTy, 1));
-  auto loopEnd = IGF.Builder.GetInsertBlock();
-  counter->addIncoming(nextCounter, loopEnd);
-  destVal->addIncoming(prevDest.getAddress(), loopEnd);
-  srcVal->addIncoming(prevSrc.getAddress(), loopEnd);
-  IGF.Builder.CreateBr(iter);
-  
-  IGF.Builder.emitBlock(exit);
-}
-
-void TypeInfo::initializeArrayWithCopy(IRGenFunction &IGF,
-                                       Address dest, Address src,
-                                       llvm::Value *count, SILType T) const {
-  if (isPOD(ResilienceScope::Component)) {
-    llvm::Value *stride = getStride(IGF, T);
-    llvm::Value *byteCount = IGF.Builder.CreateNUWMul(stride, count);
-    IGF.Builder.CreateMemCpy(dest.getAddress(), src.getAddress(),
-                             byteCount, dest.getAlignment().getValue());
-    return;
-  }
-  
-  emitInitializeArrayFrontToBack(IGF, *this, dest, src, count, T, IsNotTake);
-}
-
-void TypeInfo::initializeArrayWithTakeFrontToBack(IRGenFunction &IGF,
-                                                  Address dest, Address src,
-                                                  llvm::Value *count, SILType T)
-const {
-  if (isBitwiseTakable(ResilienceScope::Component)) {
-    llvm::Value *stride = getStride(IGF, T);
-    llvm::Value *byteCount = IGF.Builder.CreateNUWMul(stride, count);
-    IGF.Builder.CreateMemMove(dest.getAddress(), src.getAddress(),
-                              byteCount, dest.getAlignment().getValue());
-    return;
-  }
-  
-  emitInitializeArrayFrontToBack(IGF, *this, dest, src, count, T, IsTake);
-}
-
-void TypeInfo::initializeArrayWithTakeBackToFront(IRGenFunction &IGF,
-                                                  Address dest, Address src,
-                                                  llvm::Value *count, SILType T)
-const {
-  if (isBitwiseTakable(ResilienceScope::Component)) {
-    llvm::Value *stride = getStride(IGF, T);
-    llvm::Value *byteCount = IGF.Builder.CreateNUWMul(stride, count);
-    IGF.Builder.CreateMemMove(dest.getAddress(), src.getAddress(),
-                              byteCount, dest.getAlignment().getValue());
-    return;
-  }
-  
-  emitInitializeArrayBackToFront(IGF, *this, dest, src, count, T, IsTake);
 }
 
 ExplosionSchema TypeInfo::getSchema() const {
@@ -339,9 +90,9 @@ Address TypeInfo::getUndefAddress() const {
 }
 
 /// Whether this type is known to be empty.
-bool TypeInfo::isKnownEmpty() const {
+bool TypeInfo::isKnownEmpty(ResilienceExpansion expansion) const {
   if (auto fixed = dyn_cast<FixedTypeInfo>(this))
-    return fixed->isKnownEmpty();
+    return fixed->isKnownEmpty(expansion);
   return false;
 }
 
@@ -352,7 +103,7 @@ void FixedTypeInfo::initializeWithTake(IRGenFunction &IGF,
                                        Address destAddr,
                                        Address srcAddr,
                                        SILType T) const {
-  assert(isBitwiseTakable(ResilienceScope::Component)
+  assert(isBitwiseTakable(ResilienceExpansion::Maximal)
         && "non-bitwise-takable type must override default initializeWithTake");
   
   // Prefer loads and stores if we won't make a million of them.
@@ -377,7 +128,7 @@ void LoadableTypeInfo::initializeWithCopy(IRGenFunction &IGF,
                                           Address srcAddr,
                                           SILType T) const {
   // Use memcpy if that's legal.
-  if (isPOD(ResilienceScope::Component)) {
+  if (isPOD(ResilienceExpansion::Maximal)) {
     return initializeWithTake(IGF, destAddr, srcAddr, T);
   }
 
@@ -434,7 +185,7 @@ llvm::Value *FixedTypeInfo::getStride(IRGenFunction &IGF, SILType T) const {
 }
 llvm::Value *FixedTypeInfo::getIsPOD(IRGenFunction &IGF, SILType T) const {
   return llvm::ConstantInt::get(IGF.IGM.Int1Ty,
-                                isPOD(ResilienceScope::Component) == IsPOD);
+                                isPOD(ResilienceExpansion::Maximal) == IsPOD);
 }
 llvm::Constant *FixedTypeInfo::getStaticStride(IRGenModule &IGM) const {
   return asSizeConstant(IGM, getFixedStride());
@@ -537,6 +288,7 @@ FixedTypeInfo::getSpareBitExtraInhabitantIndex(IRGenFunction &IGF,
   IGF.Builder.CreateCondBr(isValid, endBB, spareBB);
 
   IGF.Builder.emitBlock(spareBB);
+  ConditionalDominanceScope condition(IGF);
   
   // Gather the occupied bits.
   auto OccupiedBits = SpareBits;
@@ -662,7 +414,7 @@ namespace {
   };
   
   /// A TypeInfo implementation for opaque storage. Swift will preserve any
-  /// data stored into this arbitarily sized and aligned field, but doesn't
+  /// data stored into this arbitrarily sized and aligned field, but doesn't
   /// know anything about the data.
   class OpaqueStorageTypeInfo final :
     public ScalarTypeInfo<OpaqueStorageTypeInfo, LoadableTypeInfo>
@@ -863,7 +615,10 @@ void TypeConverter::popGenericContext(CanGenericSignature signature) {
 }
 
 ArchetypeBuilder &TypeConverter::getArchetypes() {
-  return IGM.SILMod->Types.getArchetypes();
+  auto moduleDecl = IGM.SILMod->getSwiftModule();
+  auto genericSig = IGM.SILMod->Types.getCurGenericContext();
+  return *moduleDecl->getASTContext()
+      .getOrCreateArchetypeBuilder(genericSig, moduleDecl);
 }
 
 ArchetypeBuilder &IRGenModule::getContextArchetypes() {
@@ -1627,7 +1382,8 @@ namespace {
 
     // If the type isn't actually dependent, we're okay.
     bool visit(CanType type) {
-      if (!type->hasArchetype()) return false;
+      if (!type->hasArchetype() && !type->hasTypeParameter())
+        return false;
       return CanTypeVisitor::visit(type);
     }
 
@@ -1640,11 +1396,11 @@ namespace {
       return visitStructDecl(type->getDecl());
     }
     bool visitStructDecl(StructDecl *decl) {
-      if (IGM.isResilient(decl, ResilienceScope::Component))
+      if (IGM.isResilient(decl, ResilienceExpansion::Maximal))
         return true;
 
       for (auto field : decl->getStoredProperties()) {
-        if (visit(field->getType()->getCanonicalType()))
+        if (visit(field->getInterfaceType()->getCanonicalType()))
           return true;
       }
       return false;
@@ -1659,7 +1415,7 @@ namespace {
       return visitEnumDecl(type->getDecl());
     }
     bool visitEnumDecl(EnumDecl *decl) {
-      if (IGM.isResilient(decl, ResilienceScope::Component))
+      if (IGM.isResilient(decl, ResilienceExpansion::Maximal))
         return true;
       if (decl->isIndirect())
         return false;
@@ -1667,7 +1423,7 @@ namespace {
       for (auto elt : decl->getAllElements()) {
         if (elt->hasArgumentType() &&
             !elt->isIndirect() &&
-            visit(elt->getArgumentType()->getCanonicalType()))
+            visit(elt->getArgumentInterfaceType()->getCanonicalType()))
           return true;
       }
       return false;
@@ -1686,7 +1442,9 @@ namespace {
 
     // The IR-generation for function types is specifically not
     // type-dependent.
-    bool visitAnyFunctionType(CanAnyFunctionType type) { return false; }
+    bool visitAnyFunctionType(CanAnyFunctionType type) {
+      return false;
+    }
 
     // The safe default for a dependent type is to assume that it
     // needs its own implementation.
@@ -1700,11 +1458,11 @@ static bool isIRTypeDependent(IRGenModule &IGM, NominalTypeDecl *decl) {
   assert(!isa<ProtocolDecl>(decl));
   if (isa<ClassDecl>(decl)) {
     return false;
-  } else if (auto sd = dyn_cast<StructDecl>(decl)) {
-    return IsIRTypeDependent(IGM).visitStructDecl(sd);
+  } else if (auto structDecl = dyn_cast<StructDecl>(decl)) {
+    return IsIRTypeDependent(IGM).visitStructDecl(structDecl);
   } else {
-    auto ed = cast<EnumDecl>(decl);
-    return IsIRTypeDependent(IGM).visitEnumDecl(ed);
+    auto enumDecl = cast<EnumDecl>(decl);
+    return IsIRTypeDependent(IGM).visitEnumDecl(enumDecl);
   }
 }
 
@@ -1912,17 +1670,17 @@ llvm::PointerType *IRGenModule::requiresIndirectResult(SILType type) {
 }
 
 /// Determine whether this type is known to be POD.
-bool IRGenModule::isPOD(SILType type, ResilienceScope scope) {
+bool IRGenModule::isPOD(SILType type, ResilienceExpansion expansion) {
   if (type.is<ArchetypeType>()) return false;
   if (type.is<ClassType>()) return false;
   if (type.is<BoundGenericClassType>()) return false;
   if (auto tuple = type.getAs<TupleType>()) {
     for (auto index : indices(tuple.getElementTypes()))
-      if (!isPOD(type.getTupleElementType(index), scope))
+      if (!isPOD(type.getTupleElementType(index), expansion))
         return false;
     return true;
   }
-  return getTypeInfo(type).isPOD(scope);
+  return getTypeInfo(type).isPOD(expansion);
 }
 
 
@@ -2015,14 +1773,18 @@ bool TypeConverter::isExemplarArchetype(ArchetypeType *arch) const {
 }
 #endif
 
-SILType irgen::getSingletonAggregateFieldType(IRGenModule &IGM,
-                                              SILType t, ResilienceScope scope){
+SILType irgen::getSingletonAggregateFieldType(IRGenModule &IGM, SILType t,
+                                              ResilienceExpansion expansion) {
   if (auto tuple = t.getAs<TupleType>())
     if (tuple->getNumElements() == 1)
       return t.getTupleElementType(0);
 
-  // TODO: Consider resilience for structs and enums.
   if (auto structDecl = t.getStructOrBoundGenericStruct()) {
+    // If the struct has to be accessed resiliently from this resilience domain,
+    // we can't assume anything about its layout.
+    if (IGM.isResilient(structDecl, expansion))
+      return SILType();
+
     // C ABI wackiness may cause a single-field struct to have different layout
     // from its field.
     if (structDecl->hasUnreferenceableStorage()
@@ -2031,17 +1793,24 @@ SILType irgen::getSingletonAggregateFieldType(IRGenModule &IGM,
 
     // If there's only one stored property, we have the layout of its field.
     auto allFields = structDecl->getStoredProperties();
+    
     auto field = allFields.begin();
-    if (std::next(field) == allFields.end())
+    if (!allFields.empty() && std::next(field) == allFields.end())
       return t.getFieldType(*field, *IGM.SILMod);
 
     return SILType();
   }
 
   if (auto enumDecl = t.getEnumOrBoundGenericEnum()) {
+    // If the enum has to be accessed resiliently from this resilience domain,
+    // we can't assume anything about its layout.
+    if (IGM.isResilient(enumDecl, expansion))
+      return SILType();
+
     auto allCases = enumDecl->getAllElements();
+    
     auto theCase = allCases.begin();
-    if (std::next(theCase) == allCases.end()
+    if (!allCases.empty() && std::next(theCase) == allCases.end()
         && (*theCase)->hasArgumentType())
       return t.getEnumElementType(*theCase, *IGM.SILMod);
 

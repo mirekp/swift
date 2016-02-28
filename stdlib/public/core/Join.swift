@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -55,18 +55,12 @@ public struct JoinGenerator<
         if _fastPath(result != nil) {
           return result
         }
-        if _separatorData.isEmpty {
-          _inner = _base.next()?.generate()
-          if _inner == nil {
-            _state = .End
-            return nil
-          }
-        } else {
-          _inner = _base.next()?.generate()
-          if _inner == nil {
-            _state = .End
-            return nil
-          }
+        _inner = _base.next()?.generate()
+        if _inner == nil {
+          _state = .End
+          return nil
+        }
+        if !_separatorData.isEmpty {
           _separator = _separatorData.generate()
           _state = .GeneratingSeparator
         }
@@ -87,7 +81,7 @@ public struct JoinGenerator<
   }
 
   internal var _base: Base
-  internal var _inner: Base.Element.Generator? = nil
+  internal var _inner: Base.Element.Generator?
   internal var _separatorData: ContiguousArray<Base.Element.Generator.Element>
   internal var _separator: ContiguousArray<Base.Element.Generator.Element>.Generator?
   internal var _state: _JoinGeneratorState = .Start
@@ -113,7 +107,7 @@ public struct JoinSequence<
     self._separator = ContiguousArray(separator)
   }
 
-  /// Return a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> JoinGenerator<Base.Generator> {
@@ -128,9 +122,9 @@ public struct JoinSequence<
     let separatorSize: Int = numericCast(_separator.count)
 
     let reservation = _base._preprocessingPass {
-      (s: Base) -> Int in
+      () -> Int in
       var r = 0
-      for chunk in s {
+      for chunk in _base {
         r += separatorSize + chunk.underestimateCount()
       }
       return r - separatorSize
@@ -140,18 +134,19 @@ public struct JoinSequence<
       result.reserveCapacity(numericCast(n))
     }
 
-    if separatorSize != 0 {
-      var gen = _base.generate()
-      if let first = gen.next() {
-        result.appendContentsOf(first)
-        while let next = gen.next() {
-          result.appendContentsOf(_separator)
-          result.appendContentsOf(next)
-        }
-      }
-    } else {
+    if separatorSize == 0 {
       for x in _base {
         result.appendContentsOf(x)
+      }
+      return result._buffer
+    }
+
+    var gen = _base.generate()
+    if let first = gen.next() {
+      result.appendContentsOf(first)
+      while let next = gen.next() {
+        result.appendContentsOf(_separator)
+        result.appendContentsOf(next)
       }
     }
 

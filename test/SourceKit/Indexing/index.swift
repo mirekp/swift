@@ -33,8 +33,7 @@ protocol Prot {
   func protMeth(a: Prot)
 }
 
-func foo(a: CC, b: E) {
-  var b = b
+func foo(a: CC, var b: E) {
   globV = 0
   a + a.instV
   a.meth()
@@ -180,7 +179,7 @@ class rdar18640140 {
   // didSet is not compatible with set/get
   var S1: Int {
     get {
-      return 1;
+      return 1
     }
     set	{
     }

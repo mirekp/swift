@@ -54,6 +54,15 @@
 
 import OpenCL
 import StdlibUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
+
 import Foundation
 import Darwin
 
@@ -95,9 +104,8 @@ tests.test("clSetKernelArgsListAPPLE") {
   
   // Fill our data set with random float values
   //
-  var i = 0
   var count = DATA_SIZE
-  for i = 0; i < count; i++ {
+  for i in 0..<count {
     data[i] = Float(rand()) / Float(RAND_MAX)
   }
   
@@ -243,10 +251,10 @@ tests.test("clSetKernelArgsListAPPLE") {
   // Validate our results
   //
   correct = 0
-  for(i = 0; i < count; i++)
+  for i in 0..<count
   {
     if(results[i] == data[i] * data[i]){
-      correct++
+      correct += 1
     }
   }
   

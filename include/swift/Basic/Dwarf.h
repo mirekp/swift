@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -21,7 +21,9 @@
 
 namespace swift {
   /// The DWARF version emitted by the Swift compiler.
-  const unsigned DWARFVersion = 3;
+  const unsigned GenericDWARFVersion = 3;
+  const unsigned CygwinDWARFVersion = 4;
+
   static const char MachOASTSegmentName[] = "__SWIFT";
   static const char MachOASTSectionName[] = "__ast";
   static const char ELFASTSectionName[] = ".swift_ast";

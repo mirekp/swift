@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -24,7 +24,7 @@
 #include "swift/IDE/SourceEntityWalker.h"
 #include "swift/IDE/SyntaxModel.h"
 // This is included only for createLazyResolver(). Move to different header ?
-#include "swift/Sema/CodeCompletionTypeChecking.h"
+#include "swift/Sema/IDETypeChecking.h"
 #include "swift/Config.h"
 
 #include "llvm/Support/MemoryBuffer.h"
@@ -92,6 +92,8 @@ public:
   }
 
   void printDeclPre(const Decl *D) override {
+    if (isa<ParamDecl>(D))
+      return; // Parameters are handled specially in addParameters().
     unsigned StartOffset = OS.tell();
     EntitiesStack.emplace_back(D, StartOffset);
   }
@@ -104,6 +106,9 @@ public:
   }
 
   void printDeclPost(const Decl *D) override {
+    if (isa<ParamDecl>(D))
+      return; // Parameters are handled specially in addParameters().
+
     assert(EntitiesStack.back().Dcl == D);
     TextEntity Entity = std::move(EntitiesStack.back());
     EntitiesStack.pop_back();
@@ -200,6 +205,11 @@ static bool initDocEntityInfo(const Decl *D, bool IsRef, DocEntityInfo &Info,
     ide::getDocumentationCommentAsXML(D, OS);
 
     initDocGenericParams(D, Info);
+
+    if (auto *VD = dyn_cast<ValueDecl>(D)) {
+      llvm::raw_svector_ostream OS(Info.FullyAnnotatedDecl);
+      SwiftLangSupport::printFullyAnnotatedDeclaration(VD, Type(), OS);
+    }
   }
 
   return false;
@@ -511,48 +521,33 @@ static void collectFuncEntities(std::vector<TextEntity> &Ents,
 }
 
 static void addParameters(ArrayRef<Identifier> &ArgNames,
-                          const Pattern *Pat,
+                          const ParameterList *paramList,
                           TextEntity &Ent,
                           SourceManager &SM,
                           unsigned BufferID) {
-  if (auto ParenPat = dyn_cast<ParenPattern>(Pat)) {
-    addParameters(ArgNames, ParenPat->getSubPattern(), Ent, SM, BufferID);
-    return;
-  }
-
-  if (auto Tuple = dyn_cast<TuplePattern>(Pat)) {
-    for (const auto &Elt : Tuple->getElements())
-      addParameters(ArgNames, Elt.getPattern(), Ent, SM, BufferID);
-
-    return;
-  }
-
-  StringRef Arg;
-  if (!ArgNames.empty()) {
-    Identifier Id = ArgNames.front();
-    Arg = Id.empty() ? "_" : Id.str();
-    ArgNames = ArgNames.slice(1);
-  }
-
-  if (auto Typed = dyn_cast<TypedPattern>(Pat)) {
-    VarDecl *VD = nullptr;
-    if (auto Named = dyn_cast<NamedPattern>(Typed->getSubPattern())) {
-      VD = Named->getDecl();
+  for (auto &param : *paramList) {
+    StringRef Arg;
+    if (!ArgNames.empty()) {
+      Identifier Id = ArgNames.front();
+      Arg = Id.empty() ? "_" : Id.str();
+      ArgNames = ArgNames.slice(1);
     }
-    SourceRange TypeRange = Typed->getTypeLoc().getSourceRange();
-    if (auto InOutTyR =
-        dyn_cast_or_null<InOutTypeRepr>(Typed->getTypeLoc().getTypeRepr())) {
-      TypeRange = InOutTyR->getBase()->getSourceRange();
+
+    if (auto typeRepr = param->getTypeLoc().getTypeRepr()) {
+      SourceRange TypeRange = param->getTypeLoc().getSourceRange();
+      if (auto InOutTyR = dyn_cast_or_null<InOutTypeRepr>(typeRepr))
+        TypeRange = InOutTyR->getBase()->getSourceRange();
+      if (TypeRange.isInvalid())
+        continue;
+      
+      unsigned StartOffs = SM.getLocOffsetInBuffer(TypeRange.Start, BufferID);
+      unsigned EndOffs =
+        SM.getLocOffsetInBuffer(Lexer::getLocForEndOfToken(SM, TypeRange.End),
+                                BufferID);
+      TextRange TR{ StartOffs, EndOffs-StartOffs };
+      TextEntity Param(param, Arg, TR, StartOffs);
+      Ent.SubEntities.push_back(std::move(Param));
     }
-    if (TypeRange.isInvalid())
-      return;
-    unsigned StartOffs = SM.getLocOffsetInBuffer(TypeRange.Start, BufferID);
-    unsigned EndOffs =
-      SM.getLocOffsetInBuffer(Lexer::getLocForEndOfToken(SM, TypeRange.End),
-                              BufferID);
-    TextRange TR{ StartOffs, EndOffs-StartOffs };
-    TextEntity Param(VD, Arg, TR, StartOffs);
-    Ent.SubEntities.push_back(std::move(Param));
   }
 }
 
@@ -560,19 +555,18 @@ static void addParameters(const AbstractFunctionDecl *FD,
                           TextEntity &Ent,
                           SourceManager &SM,
                           unsigned BufferID) {
-  auto Pats = FD->getBodyParamPatterns();
+  auto params = FD->getParameterLists();
   // Ignore 'self'.
-  if (FD->getDeclContext()->isTypeContext() &&
-      !Pats.empty() && isa<TypedPattern>(Pats.front())) {
-    Pats = Pats.slice(1);
-  }
+  if (FD->getDeclContext()->isTypeContext())
+    params = params.slice(1);
+
   ArrayRef<Identifier> ArgNames;
   DeclName Name = FD->getFullName();
   if (Name) {
     ArgNames = Name.getArgumentNames();
   }
-  for (auto Pat : Pats) {
-    addParameters(ArgNames, Pat, Ent, SM, BufferID);
+  for (auto paramList : params) {
+    addParameters(ArgNames, paramList, Ent, SM, BufferID);
   }
 }
 
@@ -682,7 +676,7 @@ static bool getModuleInterfaceInfo(ASTContext &Ctx, StringRef ModuleName,
   SmallString<128> Text;
   llvm::raw_svector_ostream OS(Text);
   AnnotatingPrinter Printer(OS);
-  printModuleInterface(M, TraversalOptions, Printer, Options);
+  printModuleInterface(M, TraversalOptions, Printer, Options, false);
 
   Info.Text = OS.str();
   Info.TopEntities = std::move(Printer.TopEntities);
@@ -874,4 +868,49 @@ void SwiftLangSupport::getDocInfo(llvm::MemoryBuffer *InputBuf,
   Failed = reportSourceDocInfo(Invocation, InputBuf, Consumer);
   if (Failed)
     Consumer.failed("Error occurred");
+}
+
+void SwiftLangSupport::findModuleGroups(StringRef ModuleName,
+                                        ArrayRef<const char *> Args,
+                                        std::function<void(ArrayRef<StringRef>,
+                                                           StringRef Error)> Receiver) {
+  CompilerInvocation Invocation;
+  Invocation.getClangImporterOptions().ImportForwardDeclarations = true;
+  Invocation.clearInputs();
+
+  CompilerInstance CI;
+  // Display diagnostics to stderr.
+  PrintingDiagnosticConsumer PrintDiags;
+  CI.addDiagnosticConsumer(&PrintDiags);
+  std::vector<StringRef> Groups;
+  std::string Error;
+  if (getASTManager().initCompilerInvocation(Invocation, Args, CI.getDiags(),
+                                             StringRef(), Error)) {
+    Receiver(Groups, Error);
+    return;
+  }
+  if (CI.setup(Invocation)) {
+    Error = "Compiler invocation set up fails.";
+    Receiver(Groups, Error);
+    return;
+  }
+
+  ASTContext &Ctx = CI.getASTContext();
+  // Setup a typechecker for protocol conformance resolving.
+  OwnedResolver TypeResolver = createLazyResolver(Ctx);
+  // Load standard library so that Clang importer can use it.
+  auto *Stdlib = getModuleByFullName(Ctx, Ctx.StdlibModuleName);
+  if (!Stdlib) {
+    Error = "Cannot load stdlib.";
+    Receiver(Groups, Error);
+    return;
+  }
+  auto *M = getModuleByFullName(Ctx, ModuleName);
+  if (!M) {
+    Error = "Cannot find the module.";
+    Receiver(Groups, Error);
+    return;
+  }
+  std::vector<StringRef> Scratch;
+  Receiver(collectModuleGroups(M, Scratch), Error);
 }

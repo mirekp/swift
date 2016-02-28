@@ -44,7 +44,7 @@ class Foo {
   // x86_64-macosx: define hidden double @_TToFC8abitypes3Foo14getXFromNSRect{{.*}}(i8*, i8*, %VSC6CGRect* byval align 8) unnamed_addr {{.*}} {
   // armv7-ios: define hidden double @_TFC8abitypes3Foo14getXFromNSRect{{.*}}(%VSC6CGRect* noalias nocapture dereferenceable({{.*}}), %C8abitypes3Foo*) {{.*}} {
   // armv7-ios: define hidden double @_TToFC8abitypes3Foo14getXFromNSRect{{.*}}(i8*, i8*, [4 x i32]) unnamed_addr {{.*}} {
-  // armv7k-watchos: define hidden double @_TFC8abitypes3Foo14getXFromNSRect{{.*}}(float, float, float, float, %C8abitypes3Foo*) {{.*}} {
+  // armv7k-watchos: define hidden double @_TFC8abitypes3Foo14getXFromNSRect{{.*}}(%VSC6CGRect* noalias nocapture dereferenceable(16), %C8abitypes3Foo*) {{.*}} {
   // armv7k-watchos: define hidden double @_TToFC8abitypes3Foo14getXFromNSRect{{.*}}(i8*, i8*, [4 x float]) unnamed_addr {{.*}} {
   dynamic func getXFromNSRect(r: NSRect) -> Double {
     return Double(r.origin.x)
@@ -54,14 +54,14 @@ class Foo {
   // x86_64-macosx: define hidden float @_TToFC8abitypes3Foo12getXFromRect{{.*}}(i8*, i8*, <2 x float>, <2 x float>) unnamed_addr {{.*}} {
   // armv7-ios: define hidden float @_TFC8abitypes3Foo12getXFromRect{{.*}}(%VSC6MyRect* noalias nocapture dereferenceable({{.*}}), %C8abitypes3Foo*) {{.*}} {
   // armv7-ios: define hidden float @_TToFC8abitypes3Foo12getXFromRect{{.*}}(i8*, i8*, [4 x i32]) unnamed_addr {{.*}} {
-  // armv7k-watchos: define hidden float @_TFC8abitypes3Foo12getXFromRect{{.*}}(float, float, float, float, %C8abitypes3Foo*) {{.*}} {
+  // armv7k-watchos: define hidden float @_TFC8abitypes3Foo12getXFromRect{{.*}}(%VSC6MyRect* noalias nocapture dereferenceable(16), %C8abitypes3Foo*) {{.*}} {
   // armv7k-watchos: define hidden float @_TToFC8abitypes3Foo12getXFromRect{{.*}}(i8*, i8*, [4 x float]) unnamed_addr {{.*}} {
   dynamic func getXFromRect(r: MyRect) -> Float {
     return r.x
   }
 
   // Call from Swift entrypoint with exploded Rect to @objc entrypoint
-  // with unexploaded ABI-coerced type.
+  // with unexploded ABI-coerced type.
   // x86_64-macosx: define hidden float @_TFC8abitypes3Foo17getXFromRectSwift{{.*}}(%VSC6MyRect* noalias nocapture dereferenceable({{.*}}), [[SELF:%.*]]*) {{.*}} {
   // x86_64-macosx: [[COERCED:%.*]] = alloca [[MYRECT:%.*MyRect.*]], align 4
   // x86_64-macosx: [[SEL:%.*]] = load i8*, i8** @"\01L_selector(getXFromRect:)", align 8
@@ -79,12 +79,12 @@ class Foo {
   // armv7-ios: [[LOADED:%.*]] = load [4 x i32], [4 x i32]* [[CAST]]
   // armv7-ios: [[SELFCAST:%.*]] = bitcast [[SELF]]* %1 to i8*
   // armv7-ios: [[RESULT:%.*]] = call float bitcast (void ()* @objc_msgSend to float (i8*, i8*, [4 x i32])*)(i8* [[SELFCAST]], i8* [[SEL]], [4 x i32] [[LOADED]])
-  // armv7k-watchos: define hidden float @_TFC8abitypes3Foo17getXFromRectSwift{{.*}}(float, float, float, float, [[SELF:%.*]]*) {{.*}} {
+  // armv7k-watchos: define hidden float @_TFC8abitypes3Foo17getXFromRectSwift{{.*}}(%VSC6MyRect* noalias nocapture dereferenceable(16), [[SELF:%.*]]*) {{.*}} {
   // armv7k-watchos: [[COERCED:%.*]] = alloca [[MYRECT:%.*MyRect.*]], align 4
-  // armv7k-watchos: [[SEL:%.*]] = load i8** @"\01L_selector(getXFromRect:)", align 4
+  // armv7k-watchos: [[SEL:%.*]] = load i8*, i8** @"\01L_selector(getXFromRect:)", align 4
   // armv7k-watchos: [[CAST:%.*]] = bitcast [[MYRECT]]* [[COERCED]] to [4 x float]*
-  // armv7k-watchos: [[LOADED:%.*]] = load [4 x float]* [[CAST]]
-  // armv7k-watchos: [[SELFCAST:%.*]] = bitcast [[SELF]]* %4 to i8*
+  // armv7k-watchos: [[LOADED:%.*]] = load [4 x float], [4 x float]* [[CAST]]
+  // armv7k-watchos: [[SELFCAST:%.*]] = bitcast [[SELF]]* %1 to i8*
   // armv7k-watchos: [[RESULT:%.*]] = call float bitcast (void ()* @objc_msgSend to float (i8*, i8*, [4 x float])*)(i8* [[SELFCAST]], i8* [[SEL]], [4 x float] [[LOADED]])
   func getXFromRectSwift(r: MyRect) -> Float {
     return getXFromRect(r)
@@ -103,7 +103,7 @@ class Foo {
   // Make sure the caller-side from Swift also uses indirect-byval for the argument
   // x86_64-macosx: define hidden float @_TFC8abitypes3Foo25getXFromRectIndirectSwift{{.*}}(%VSC6MyRect* noalias nocapture dereferenceable({{.*}}), %C8abitypes3Foo*) {{.*}} {
   func getXFromRectIndirectSwift(r: MyRect) -> Float {
-    let f : Float = 1.0;
+    let f : Float = 1.0
     // x86_64-macosx: [[TEMP:%.*]] = alloca [[TEMPTYPE:%.*]], align 4
     // x86_64-macosx: [[RESULT:%.*]] = call float bitcast (void ()* @objc_msgSend to float (i8*, i8*, float, float, float, float, float, float, float, [[TEMPTYPE]]*)*)(i8* %{{.*}}, i8* %{{.*}}, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, [[TEMPTYPE]]* byval align 4 [[TEMP]])
     // x86_64-macosx: ret float [[RESULT]]
@@ -131,11 +131,11 @@ class Foo {
   //
   // armv7k returns an HA of four floats directly
   // armv7k-watchos:      define hidden float @_TFC8abitypes3Foo4barc{{.*}}(%CSo13StructReturns*, %C8abitypes3Foo*) {{.*}} {
-  // armv7k-watchos:      load i8** @"\01L_selector(newRect)", align 4
+  // armv7k-watchos:      load i8*, i8** @"\01L_selector(newRect)", align 4
   // armv7k-watchos:      [[RESULT:%.*]] = call [[ARMV7K_MYRECT]] bitcast (void ()* @objc_msgSend
   // armv7k-watchos:      store [[ARMV7K_MYRECT]] [[RESULT]]
   // armv7k-watchos:      [[CAST:%.*]] = bitcast [[ARMV7K_MYRECT]]*
-  // armv7k-watchos:      load { float, float, float, float }* [[CAST]]
+  // armv7k-watchos:      load { float, float, float, float }, { float, float, float, float }* [[CAST]]
   // armv7k-watchos:      ret float
   func barc(p: StructReturns) -> Float {
     return p.newRect().y
@@ -172,9 +172,13 @@ class Foo {
 
   // x86_64-macosx:      define hidden { i32, i32 } @_TFC8abitypes3Foo9getnested{{.*}}(%CSo13StructReturns*, %C8abitypes3Foo*) {{.*}} {
   // x86_64-macosx:      call i64 bitcast (void ()* @objc_msgSend to i64 ([[OPAQUE:.*]]*, i8*)*)
+  // x86_64-macosx-NEXT: bitcast
+  // x86_64-macosx-NEXT: llvm.lifetime.start
   // x86_64-macosx-NEXT: store i64
   // x86_64-macosx-NEXT: bitcast i64* {{[^ ]*}} to { i32, i32 }*
   // x86_64-macosx-NEXT: load { i32, i32 }, { i32, i32 }*
+  // x86_64-macosx-NEXT: bitcast
+  // x86_64-macosx-NEXT: llvm.lifetime.end
   // x86_64-macosx:      ret { i32, i32 }
   func getnested(p: StructReturns) -> NestedInts {
     return p.newNestedInts()
@@ -352,7 +356,7 @@ class Foo {
   // i386-watchos: ret i1 [[TOOBJCBOOL]]
   //
   // armv7k-watchos: define hidden i1 @_TFC8abitypes3Foo7negate2{{.*}}(i1, %C8abitypes3Foo*) {{.*}} {
-  // armv7k-watchos: [[SEL:%[0-9]+]] = load i8** @"\01L_selector(negate:)", align 4
+  // armv7k-watchos: [[SEL:%[0-9]+]] = load i8*, i8** @"\01L_selector(negate:)", align 4
   // armv7k-watchos: [[NEG:%[0-9]+]] = call zeroext i1 bitcast (void ()* @objc_msgSend to i1 ([[RECEIVER:.*]]*, i8*, i1)*)([[RECEIVER]]* {{%[0-9]+}}, i8* [[SEL]], i1 zeroext %0)
   // armv7k-watchos: ret i1 [[NEG]]
   //
@@ -427,7 +431,7 @@ class Foo {
   // Test that the makeOne() that we generate somewhere below doesn't
   // use arm_aapcscc for armv7.
   func callInline() -> Float {
-    return makeOne(3,5).second;
+    return makeOne(3,5).second
   }
 }
 
@@ -435,7 +439,7 @@ class Foo {
 // armv7k-watchos: define internal %struct.One @makeOne(float %f, float %s)
 
 // rdar://17631440 - Expand direct arguments that are coerced to aggregates.
-// x86_64-macosx: define float @_TF8abitypes13testInlineAggFVSC6MyRectSf(%VSC6MyRect* noalias nocapture dereferenceable({{.*}})) {{.*}} {
+// x86_64-macosx: define{{( protected)?}} float @_TF8abitypes13testInlineAggFVSC6MyRectSf(%VSC6MyRect* noalias nocapture dereferenceable({{.*}})) {{.*}} {
 // x86_64-macosx: [[COERCED:%.*]] = alloca %VSC6MyRect, align 4
 // x86_64-macosx: store float %
 // x86_64-macosx: store float %

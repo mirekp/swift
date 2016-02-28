@@ -1,8 +1,8 @@
-//===-- Platform.cpp - Implement platform-related helpers -------*- C++ -*-===//
+//===--- Platform.cpp - Implement platform-related helpers ----------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -63,6 +63,12 @@ StringRef swift::getPlatformNameForTriple(const llvm::Triple &triple) {
 
   if (triple.isOSLinux())
     return "linux";
+
+  if (triple.isOSFreeBSD())
+    return "freebsd";
+	
+  if (triple.isOSWindows())
+    return  "windows";
 
   return "";
 }

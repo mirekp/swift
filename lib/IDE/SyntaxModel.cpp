@@ -1,8 +1,8 @@
-//===- SyntaxModel.cpp - Routines for IDE syntax model --------------------===//
+//===--- SyntaxModel.cpp - Routines for IDE syntax model ------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -48,6 +48,7 @@ struct SyntaxModelContext::Implementation {
 
 SyntaxModelContext::SyntaxModelContext(SourceFile &SrcFile)
   : Impl(*new Implementation(SrcFile)) {
+  const bool IsPlayground = Impl.LangOpts.Playground;
   const SourceManager &SM = Impl.SrcMgr;
   std::vector<Token> Tokens = swift::tokenize(Impl.LangOpts, SM,
                                               *Impl.SrcFile.getBufferID(),
@@ -97,9 +98,20 @@ SyntaxModelContext::SyntaxModelContext(SourceFile &SrcFile)
 #define KEYWORD(X) case tok::kw_##X: Kind = SyntaxNodeKind::Keyword; break;
 #include "swift/Parse/Tokens.def"
 #undef KEYWORD
+      case tok::pound_selector:
+      case tok::pound_file:
+      case tok::pound_column:
+      case tok::pound_function:
+      case tok::pound_dsohandle:
+        Kind = SyntaxNodeKind::Keyword;
+        break;
       case tok::pound_line:
-      case tok::pound_available: Kind =
-          SyntaxNodeKind::BuildConfigKeyword; break;
+        Kind = Tok.isAtStartOfLine() ? SyntaxNodeKind::BuildConfigKeyword :
+                                       SyntaxNodeKind::Keyword;
+        break;
+      case tok::pound_available:
+        Kind = SyntaxNodeKind::BuildConfigKeyword;
+        break;
       case tok::identifier:
         if (Tok.getText().startswith("<#"))
           Kind = SyntaxNodeKind::EditorPlaceholder;
@@ -111,9 +123,11 @@ SyntaxModelContext::SyntaxModelContext(SourceFile &SrcFile)
       case tok::floating_literal: Kind = SyntaxNodeKind::Floating; break;
       case tok::string_literal: Kind = SyntaxNodeKind::String; break;
       case tok::comment:
-        if (Tok.getText().startswith("///"))
+        if (Tok.getText().startswith("///") ||
+            (IsPlayground && Tok.getText().startswith("//:")))
           Kind = SyntaxNodeKind::DocCommentLine;
-        else if (Tok.getText().startswith("/**"))
+        else if (Tok.getText().startswith("/**") ||
+                 (IsPlayground && Tok.getText().startswith("/*:")))
           Kind = SyntaxNodeKind::DocCommentBlock;
         else if (Tok.getText().startswith("//"))
           Kind = SyntaxNodeKind::CommentLine;
@@ -666,7 +680,7 @@ std::pair<bool, Stmt *> ModelASTWalker::walkToStmtPre(Stmt *S) {
         TokLen = 7; // '#elseif'
       if (!passNonTokenNode({SyntaxNodeKind::BuildConfigKeyword,
         CharSourceRange(Clause.Loc, TokLen) }))
-        return  { false, nullptr };
+        return { false, nullptr };
 
       if (Clause.Cond && !annotateIfConfigConditionIdentifiers(Clause.Cond))
         return { false, nullptr };
@@ -994,7 +1008,7 @@ public:
       if (DRE->getRefKind() != DeclRefKind::Ordinary)
         return { true, E };
       if (!Fn(CharSourceRange(DRE->getSourceRange().Start,
-                              DRE->getName().getLength())))
+                              DRE->getName().getBaseName().getLength())))
         return { false, nullptr };
     }
     return { true, E };
@@ -1291,10 +1305,7 @@ bool ModelASTWalker::processComment(CharSourceRange Range) {
 bool ModelASTWalker::findUrlStartingLoc(StringRef Text,
                                         unsigned &Start,
                                         std::regex &Regex) {
-#ifndef SWIFT_HAVE_WORKING_STD_REGEX
-  return false;
-#endif
-
+#ifdef SWIFT_HAVE_WORKING_STD_REGEX
   static const auto MailToPosition = std::find(URLProtocols.begin(),
                                                URLProtocols.end(),
                                                "mailto");
@@ -1318,6 +1329,7 @@ bool ModelASTWalker::findUrlStartingLoc(StringRef Text,
       return true;
     }
   }
+#endif
   return false;
 }
 
@@ -1354,10 +1366,8 @@ bool ModelASTWalker::searchForURL(CharSourceRange Range) {
 Optional<SyntaxNode> ModelASTWalker::parseFieldNode(StringRef Text,
                                                     StringRef OrigText,
                                                     SourceLoc OrigLoc) {
-#ifndef SWIFT_HAVE_WORKING_STD_REGEX
-  return None;
-#endif
-
+  Optional<SyntaxNode> Node;
+#ifdef SWIFT_HAVE_WORKING_STD_REGEX
   std::match_results<StringRef::iterator> Matches;
   for (unsigned i = 0; i != 3; ++i) {
     auto &Rx = getDocCommentRegex(i);
@@ -1372,7 +1382,9 @@ Optional<SyntaxNode> ModelASTWalker::parseFieldNode(StringRef Text,
   StringRef MatchStr(Match.first, Match.second - Match.first);
   auto Loc = OrigLoc.getAdvancedLoc(MatchStr.data() - OrigText.data());
   CharSourceRange Range(Loc, MatchStr.size());
-  return Optional<SyntaxNode>({ SyntaxNodeKind::DocCommentField, Range });
+  Node = Optional<SyntaxNode>({ SyntaxNodeKind::DocCommentField, Range });
+#endif
+  return Node;
 }
 
 bool ModelASTWalker::findFieldsInDocCommentLine(SyntaxNode Node) {

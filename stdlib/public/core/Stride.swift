@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -16,7 +16,7 @@ public protocol Strideable : Comparable {
   // FIXME: We'd like to name this type "Distance" but for
   // <rdar://problem/17619038>
   /// A type that can represent the distance between two values of `Self`.
-  typealias Stride : SignedNumberType
+  associatedtype Stride : SignedNumberType
 
   /// Returns a stride `x` such that `self.advancedBy(x)` approximates
   /// `other`.
@@ -50,30 +50,30 @@ public func == <T : Strideable>(x: T, y: T) -> Bool {
 }
 
 @warn_unused_result
-public func + <T : Strideable> (lhs: T, rhs: T.Stride) -> T {
+public func + <T : Strideable>(lhs: T, rhs: T.Stride) -> T {
   return lhs.advancedBy(rhs)
 }
 
 @warn_unused_result
-public func + <T : Strideable> (lhs: T.Stride, rhs: T) -> T {
+public func + <T : Strideable>(lhs: T.Stride, rhs: T) -> T {
   return rhs.advancedBy(lhs)
 }
 
 @warn_unused_result
-public func - <T : Strideable> (lhs: T, rhs: T.Stride) -> T {
+public func - <T : Strideable>(lhs: T, rhs: T.Stride) -> T {
   return lhs.advancedBy(-rhs)
 }
 
 @warn_unused_result
-public func - <T : Strideable> (lhs: T, rhs: T) -> T.Stride {
+public func - <T : Strideable>(lhs: T, rhs: T) -> T.Stride {
   return rhs.distanceTo(lhs)
 }
 
-public func += <T : Strideable> (inout lhs: T, rhs: T.Stride) {
+public func += <T : Strideable>(lhs: inout T, rhs: T.Stride) {
   lhs = lhs.advancedBy(rhs)
 }
 
-public func -= <T : Strideable> (inout lhs: T, rhs: T.Stride) {
+public func -= <T : Strideable>(lhs: inout T, rhs: T.Stride) {
   lhs = lhs.advancedBy(-rhs)
 }
 
@@ -82,45 +82,45 @@ public func -= <T : Strideable> (inout lhs: T, rhs: T.Stride) {
 // overloads, expressions such as UInt(2) + Int(3) would compile.             //
 //===----------------------------------------------------------------------===//
 
-public func + <T : UnsignedIntegerType> (
+public func + <T : UnsignedIntegerType>(
   lhs: T, rhs: T._DisallowMixedSignArithmetic
 ) -> T {
   _sanityCheckFailure("Should not be callable.")
 }
 
-public func + <T : UnsignedIntegerType> (
+public func + <T : UnsignedIntegerType>(
   lhs: T._DisallowMixedSignArithmetic, rhs: T
 ) -> T {
   _sanityCheckFailure("Should not be callable.")
 }
 
-public func - <T : _DisallowMixedSignArithmetic> (
+public func - <T : _DisallowMixedSignArithmetic>(
   lhs: T, rhs: T._DisallowMixedSignArithmetic
 ) -> T {
   _sanityCheckFailure("Should not be callable.")
 }
 
-public func - <T : _DisallowMixedSignArithmetic> (
+public func - <T : _DisallowMixedSignArithmetic>(
   lhs: T, rhs: T
 ) -> T._DisallowMixedSignArithmetic {
   _sanityCheckFailure("Should not be callable.")
 }
 
-public func += <T : UnsignedIntegerType> (
-  inout lhs: T, rhs: T._DisallowMixedSignArithmetic
+public func += <T : UnsignedIntegerType>(
+  lhs: inout T, rhs: T._DisallowMixedSignArithmetic
 ) {
   _sanityCheckFailure("Should not be callable.")
 }
 
-public func -= <T : UnsignedIntegerType> (
-  inout lhs: T, rhs: T._DisallowMixedSignArithmetic
+public func -= <T : UnsignedIntegerType>(
+  lhs: inout T, rhs: T._DisallowMixedSignArithmetic
 ) {
   _sanityCheckFailure("Should not be callable.")
 }
 
 //===----------------------------------------------------------------------===//
 
-/// A GeneratorType for `StrideTo<Element>`.
+/// A `GeneratorType` for `StrideTo<Element>`.
 public struct StrideToGenerator<Element : Strideable> : GeneratorType {
   @available(*, unavailable, renamed="Element")
   public typealias T = Element
@@ -135,20 +135,20 @@ public struct StrideToGenerator<Element : Strideable> : GeneratorType {
     if stride > 0 ? current >= end : current <= end {
       return nil
     }
-    let ret = current
+    let result = current
     current += stride
-    return ret
+    return result
   }
 }
 
 /// A `SequenceType` of values formed by striding over a half-open interval.
-public struct StrideTo<Element : Strideable> : SequenceType {
+public struct StrideTo<Element : Strideable> : SequenceType, CustomReflectable {
   // FIXME: should really be a CollectionType, as it is multipass
 
   @available(*, unavailable, renamed="Element")
   public typealias T = Element
 
-  /// Return a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> StrideToGenerator<Element> {
@@ -167,10 +167,14 @@ public struct StrideTo<Element : Strideable> : SequenceType {
   let start: Element
   let end: Element
   let stride: Element.Stride
+
+  public func customMirror() -> Mirror {
+    return Mirror(self, children: ["from": start, "to": end, "by": stride])
+  }
 }
 
 extension Strideable {
-  /// Return the sequence of values (`self`, `self + stride`, `self +
+  /// Returns the sequence of values (`self`, `self + stride`, `self +
   /// stride + stride`, ... *last*) where *last* is the last value in
   /// the progression that is less than `end`.
   @warn_unused_result
@@ -186,7 +190,7 @@ public func stride<
   fatalError("unavailable function can't be called")
 }
 
-/// A GeneratorType for `StrideThrough<Element>`.
+/// A `GeneratorType` for `StrideThrough<Element>`.
 public struct StrideThroughGenerator<Element : Strideable> : GeneratorType {
   @available(*, unavailable, renamed="Element")
   public typealias T = Element
@@ -209,20 +213,20 @@ public struct StrideThroughGenerator<Element : Strideable> : GeneratorType {
       }
       return nil
     }
-    let ret = current
+    let result = current
     current += stride
-    return ret
+    return result
   }
 }
 
 /// A `SequenceType` of values formed by striding over a closed interval.
-public struct StrideThrough<Element : Strideable> : SequenceType {
+public struct StrideThrough<Element : Strideable> : SequenceType, CustomReflectable {
   // FIXME: should really be a CollectionType, as it is multipass
 
   @available(*, unavailable, renamed="Element")
   public typealias T = Element
 
-  /// Return a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> StrideThroughGenerator<Element> {
@@ -240,10 +244,14 @@ public struct StrideThrough<Element : Strideable> : SequenceType {
   let start: Element
   let end: Element
   let stride: Element.Stride
+
+  public func customMirror() -> Mirror {
+    return Mirror(self, children: ["from": start, "through": end, "by": stride])
+  }
 }
 
 extension Strideable {
-  /// Return the sequence of values (`start`, `start + stride`, `start +
+  /// Returns the sequence of values (`self`, `self + stride`, `self +
   /// stride + stride`, ... *last*) where *last* is the last value in
   /// the progression less than or equal to `end`.
   ///

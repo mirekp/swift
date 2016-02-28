@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -44,6 +44,7 @@ namespace swift {
   class DiagnosticEngine;
   class FileUnit;
   class GenericParamList;
+  class GenericSignature;
   class IRGenOptions;
   class LangOptions;
   class ModuleDecl;
@@ -123,7 +124,8 @@ namespace swift {
                               const SourceManager &SM, unsigned BufferID,
                               unsigned Offset = 0, unsigned EndOffset = 0,
                               bool KeepComments = true,
-                              bool TokenizeInterpolatedString = true);
+                              bool TokenizeInterpolatedString = true,
+                              ArrayRef<Token> SplitTokens = ArrayRef<Token>());
 
   /// Once parsing is complete, this walks the AST to resolve imports, record
   /// operators, and do other top-level validation.
@@ -186,13 +188,9 @@ namespace swift {
                               bool ProduceDiagnostics = true);
 
   /// Expose TypeChecker's handling of GenericParamList to SIL parsing.
-  /// We pass in a vector of nested GenericParamLists and a vector of
-  /// ArchetypeBuilders with the innermost GenericParamList in the beginning
-  /// of the vector.
-  bool handleSILGenericParams(ASTContext &Ctx,
-                              SmallVectorImpl<GenericParamList *> &gps,
-                              DeclContext *DC,
-                              SmallVectorImpl<ArchetypeBuilder *> &builders);
+  GenericSignature *handleSILGenericParams(ASTContext &Ctx,
+                                           GenericParamList *genericParams,
+                                           DeclContext *DC);
 
   /// Turn the given module into SIL IR.
   ///

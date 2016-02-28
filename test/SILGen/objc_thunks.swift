@@ -1,4 +1,4 @@
-// RUN: %target-swift-frontend -sdk %S/Inputs -I %S/Inputs -enable-source-import %s -emit-silgen -emit-verbose-sil | FileCheck %s
+// RUN: %target-swift-frontend -Xllvm -sil-full-demangle -sdk %S/Inputs -I %S/Inputs -enable-source-import %s -emit-silgen -emit-verbose-sil | FileCheck %s
 
 // REQUIRES: objc_interop
 
@@ -14,8 +14,8 @@ class Hoozit : Gizmo {
   // CHECK-NEXT:   // function_ref
   // CHECK-NEXT:   [[NATIVE:%.*]] = function_ref @_TFC11objc_thunks6Hoozit7typical{{.*}} : $@convention(method) (Int, @owned Gizmo, @guaranteed Hoozit) -> @owned Gizmo
   // CHECK-NEXT:   [[RES:%.*]] = apply [[NATIVE]]([[X]], [[Y]], [[THIS]]) {{.*}} line:[[@LINE-7]]:8:auto_gen
-  // CHECK-NEXT:   strong_release [[THIS]] : $Hoozit // {{.*}}
-  // CHECK-NEXT:   autorelease_return [[RES]] : $Gizmo // {{.*}} line:[[@LINE-9]]:8:auto_gen
+  // CHECK-NEXT:   strong_release [[THIS]] : $Hoozit
+  // CHECK-NEXT:   return [[RES]] : $Gizmo{{.*}} line:[[@LINE-9]]:8:auto_gen
   // CHECK-NEXT: }
 
   // NS_CONSUMES_SELF by inheritance
@@ -48,7 +48,6 @@ class Hoozit : Gizmo {
   // CHECK-NEXT:   [[NATIVE:%.*]] = function_ref @_TFC11objc_thunks6Hoozit7copyFoo{{.*}} : $@convention(method) (@guaranteed Hoozit) -> @owned Gizmo
   // CHECK-NEXT:   [[RES:%.*]] = apply [[NATIVE]]([[THIS]])
   // CHECK:        release [[THIS]]
-  // CHECK-NOT:    autorelease_return
   // CHECK-NEXT:   return [[RES]]
   // CHECK-NEXT: }
 
@@ -61,13 +60,13 @@ class Hoozit : Gizmo {
   // CHECK-NEXT:   [[GETIMPL:%.*]] = function_ref @_TFC11objc_thunks6Hoozitg15typicalPropertyCSo5Gizmo
   // CHECK-NEXT:   [[RES:%.*]] = apply [[GETIMPL]](%0)
   // CHECK-NEXT:   strong_release %0
-  // CHECK-NEXT:   autorelease_return [[RES]] : $Gizmo
+  // CHECK-NEXT:   return [[RES]] : $Gizmo
   // CHECK-NEXT: }
   
   // CHECK-LABEL: sil hidden [transparent] @_TFC11objc_thunks6Hoozitg15typicalPropertyCSo5Gizmo : $@convention(method) (@guaranteed Hoozit) -> @owned Gizmo
   // CHECK: bb0(%0 : $Hoozit):
   // CHECK-NEXT:   debug_value %0
-  // CHECK-NEXT:   [[ADDR:%.*]] = ref_element_addr %0 : {{.*}}, #Hoozit.typicalProperty {{.*}}
+  // CHECK-NEXT:   [[ADDR:%.*]] = ref_element_addr %0 : {{.*}}, #Hoozit.typicalProperty
   // CHECK-NEXT:   [[RES:%.*]] = load [[ADDR]] {{.*}}
   // CHECK-NEXT:   strong_retain [[RES]] : $Gizmo
   // CHECK-NEXT:   return [[RES]]
@@ -132,7 +131,7 @@ class Hoozit : Gizmo {
   // CHECK-NEXT:   [[NATIVE:%.*]] = function_ref @_TFC11objc_thunks6Hoozitg10roPropertyCSo5Gizmo : $@convention(method) (@guaranteed Hoozit) -> @owned Gizmo
   // CHECK-NEXT:   [[RES:%.*]] = apply [[NATIVE]]([[THIS]])
   // CHECK-NEXT:   release [[THIS]] : $Hoozit
-  // CHECK-NEXT:   autorelease_return [[RES]] : $Gizmo
+  // CHECK-NEXT:   return [[RES]] : $Gizmo
   // CHECK-NEXT: }
 
   // -- no setter
@@ -173,7 +172,7 @@ class Hoozit : Gizmo {
   // CHECK-NEXT:   [[NATIVE:%.*]] = function_ref @_TFC11objc_thunks6Hoozitg14copyRWPropertyCSo5Gizmo : $@convention(method) (@guaranteed Hoozit) -> @owned Gizmo
   // CHECK-NEXT:   [[RES:%.*]] = apply [[NATIVE]]([[THIS]])
   // CHECK-NEXT:   release [[THIS]]
-  // CHECK-NOT:    autorelease_return
+  // CHECK-NOT:    return
   // CHECK-NEXT:   return [[RES]]
   // CHECK-NEXT: }
 
@@ -196,7 +195,8 @@ class Hoozit : Gizmo {
   // Constructor.
   // CHECK-LABEL: sil hidden @_TFC11objc_thunks6Hoozitc{{.*}} : $@convention(method) (Int, @owned Hoozit) -> @owned Hoozit {
   // CHECK: [[SELF_BOX:%[0-9]+]] = alloc_box $Hoozit
-  // CHECK: [[SELFMUI:%[0-9]+]] = mark_uninitialized [derivedself] [[SELF_BOX]]#1
+  // CHECK: [[PB:%.*]] = project_box [[SELF_BOX]]
+  // CHECK: [[SELFMUI:%[0-9]+]] = mark_uninitialized [derivedself] [[PB]]
   // CHECK: [[GIZMO:%[0-9]+]] = upcast [[SELF:%[0-9]+]] : $Hoozit to $Gizmo
   // CHECK: [[SUPERMETHOD:%[0-9]+]] = super_method [volatile] [[SELF]] : $Hoozit, #Gizmo.init!initializer.1.foreign : Gizmo.Type -> (bellsOn: Int) -> Gizmo! , $@convention(objc_method) (Int, @owned Gizmo) -> @owned ImplicitlyUnwrappedOptional<Gizmo>
   // CHECK-NEXT: [[SELF_REPLACED:%[0-9]+]] = apply [[SUPERMETHOD]](%0, [[X:%[0-9]+]]) : $@convention(objc_method) (Int, @owned Gizmo) -> @owned ImplicitlyUnwrappedOptional<Gizmo>
@@ -218,7 +218,7 @@ class Hoozit : Gizmo {
   // CHECK: [[NATIVE:%[0-9]+]] = function_ref @_TFC11objc_thunks6Hoozitg9subscript{{.*}} : $@convention(method) (Int, @guaranteed Hoozit) -> @owned Hoozit
   // CHECK-NEXT: [[RESULT:%[0-9]+]] = apply [[NATIVE]]([[I]], [[SELF]]) : $@convention(method) (Int, @guaranteed Hoozit) -> @owned Hoozit
   // CHECK-NEXT: strong_release [[SELF]]
-  // CHECK-NEXT: autorelease_return [[RESULT]] : $Hoozit
+  // CHECK-NEXT: return [[RESULT]] : $Hoozit
   get {
     return self
   }
@@ -267,7 +267,7 @@ class Wotsit<T> : Gizmo {
   // CHECK-NEXT:   // function_ref
   // CHECK-NEXT:   [[BRIDGE:%.*]] = function_ref @swift_StringToNSString : $@convention(thin) (@owned String) -> @owned NSString
   // CHECK-NEXT:   [[NSRESULT:%.*]] = apply [[BRIDGE]]([[RESULT]]) : $@convention(thin) (@owned String) -> @owned NSString
-  // CHECK-NEXT:   autorelease_return [[NSRESULT]] : $NSString
+  // CHECK-NEXT:   return [[NSRESULT]] : $NSString
   // CHECK-NEXT: }
   override var description : String {
     return "Hello, world."
@@ -287,7 +287,8 @@ extension Hoozit {
   // CHECK-LABEL: sil hidden @_TFC11objc_thunks6Hoozitc{{.*}} : $@convention(method) (Double, @owned Hoozit) -> @owned Hoozit
   convenience init(double d: Double) { 
     // CHECK: [[SELF_BOX:%[0-9]+]] = alloc_box $Hoozit
-    // CHECK: [[SELFMUI:%[0-9]+]] = mark_uninitialized [delegatingself] [[SELF_BOX]]#1
+    // CHECK: [[PB:%.*]] = project_box [[SELF_BOX]]
+    // CHECK: [[SELFMUI:%[0-9]+]] = mark_uninitialized [delegatingself] [[PB]]
     // CHECK: [[X_BOX:%[0-9]+]] = alloc_box $X
     var x = X()
     // CHECK: [[CTOR:%[0-9]+]] = class_method [volatile] [[SELF:%[0-9]+]] : $Hoozit, #Hoozit.init!initializer.1.foreign : Hoozit.Type -> (int: Int) -> Hoozit , $@convention(objc_method) (Int, @owned Hoozit) -> @owned Hoozit
@@ -296,13 +297,13 @@ extension Hoozit {
     // CHECK: [[NONNULL:%[0-9]+]] = is_nonnull [[NEW_SELF]] : $Hoozit
     // CHECK-NEXT: cond_br [[NONNULL]], [[NONNULL_BB:bb[0-9]+]], [[NULL_BB:bb[0-9]+]]
     // CHECK: [[NULL_BB]]:
-    // CHECK-NEXT: strong_release [[X_BOX]]#0 : $@box X
+    // CHECK-NEXT: strong_release [[X_BOX]] : $@box X
     // CHECK-NEXT: br [[EPILOG_BB:bb[0-9]+]]
 
     // CHECK: [[NONNULL_BB]]:
     // CHECK:   [[OTHER_REF:%[0-9]+]] = function_ref @_TF11objc_thunks5otherFT_T_ : $@convention(thin) () -> ()
     // CHECK-NEXT: apply [[OTHER_REF]]() : $@convention(thin) () -> ()
-    // CHECK-NEXT: strong_release [[X_BOX]]#0 : $@box X
+    // CHECK-NEXT: strong_release [[X_BOX]] : $@box X
     // CHECK-NEXT: br [[EPILOG_BB]]
     
     // CHECK: [[EPILOG_BB]]:
@@ -395,19 +396,19 @@ class DesignatedOverrides : Gizmo {
 
 func registerAnsible() {
   // CHECK: function_ref @_TFF11objc_thunks15registerAnsibleFT_T_U_FGSQFT_T__T_
-  // CHECK: function_ref @_TTRXFo_oGSQFT_T___dT__XFdCb_dGSQbT_T___dT__
+  // CHECK: function_ref @_TTRXFo_oGSQFT_T____XFdCb_dGSQbT_T____
   Ansible.anseAsync({ completion in completion() })
 }
 
 // FIXME: would be nice if we didn't need to re-abstract as much here.
 
-// CHECK-LABEL: sil shared [transparent] [reabstraction_thunk] @_TTRXFo_oGSQFT_T___dT__XFdCb_dGSQbT_T___dT__ : $@convention(c) (@inout @block_storage @callee_owned (@owned ImplicitlyUnwrappedOptional<() -> ()>) -> (), ImplicitlyUnwrappedOptional<@convention(block) () -> ()>) -> ()
+// CHECK-LABEL: sil shared [transparent] [reabstraction_thunk] @_TTRXFo_oGSQFT_T____XFdCb_dGSQbT_T____ : $@convention(c) (@inout_aliasable @block_storage @callee_owned (@owned ImplicitlyUnwrappedOptional<() -> ()>) -> (), ImplicitlyUnwrappedOptional<@convention(block) () -> ()>) -> ()
 // CHECK: [[HEAP_BLOCK_IUO:%.*]] = copy_block %1
 // CHECK: select_enum [[HEAP_BLOCK_IUO]]
 // CHECK: bb1:
 // CHECK: [[HEAP_BLOCK:%.*]] = unchecked_enum_data [[HEAP_BLOCK_IUO]]
-// CHECK: [[BLOCK_THUNK:%.*]] = function_ref @_TTRXFdCb__dT__XFo__dT__
+// CHECK: [[BLOCK_THUNK:%.*]] = function_ref @_TTRXFdCb___XFo___
 // CHECK: [[BRIDGED_BLOCK:%.*]] = partial_apply [[BLOCK_THUNK]]([[HEAP_BLOCK]])
-// CHECK: [[REABS_THUNK:%.*]] = function_ref @_TTRXFo__dT__XFo_iT__iT__
+// CHECK: [[REABS_THUNK:%.*]] = function_ref @_TTRXFo___XFo_iT__iT__
 // CHECK: [[REABS_BLOCK:%.*]] = partial_apply [[REABS_THUNK]]([[BRIDGED_BLOCK]])
 // CHECK: [[REABS_BLOCK_IUO:%.*]] = enum $ImplicitlyUnwrappedOptional<() -> ()>, {{.*}} [[REABS_BLOCK]]

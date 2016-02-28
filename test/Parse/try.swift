@@ -32,7 +32,7 @@ var b = true ? try! foo() : try! bar() + 0
 var c = true ? try! foo() : try! bar() %%% 0 // expected-error {{'try!' following conditional operator does not cover everything to its right}}
 
 infix operator ?+= { associativity right precedence 90 assignment }
-func ?+=(inout lhs: Int?, rhs: Int?) {
+func ?+=(lhs: inout Int?, rhs: Int?) {
   lhs = lhs! + rhs!
 }
 
@@ -92,8 +92,8 @@ func rethrowsDispatchError(handleError: ((ErrorType) throws -> ()), body: () thr
 
 // <rdar://problem/21432429> Calling rethrows from rethrows crashes Swift compiler
 struct r21432429 {
-  func x(f: () throws ->()) rethrows {}
-  func y(f: () throws ->()) rethrows {
+  func x(f: () throws -> ()) rethrows {}
+  func y(f: () throws -> ()) rethrows {
     x(f)  // expected-error {{call can throw but is not marked with 'try'}} expected-note {{call is to 'rethrows' function, but argument function can throw}}
   }
 }

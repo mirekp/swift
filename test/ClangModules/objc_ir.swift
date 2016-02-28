@@ -11,9 +11,9 @@ import objc_ext
 import TestProtocols
 import ObjCIRExtras
 
-// CHECK: @"\01L_selector_data(method:withFloat:)" = internal constant [18 x i8] c"method:withFloat:\00"
-// CHECK: @"\01L_selector_data(method:withDouble:)" = internal constant [19 x i8] c"method:withDouble:\00"
-// CHECK: @"\01L_selector_data(method:separateExtMethod:)" = internal constant [26 x i8] c"method:separateExtMethod:\00", section "__TEXT,__objc_methname,cstring_literals"
+// CHECK: @"\01L_selector_data(method:withFloat:)" = private global [18 x i8] c"method:withFloat:\00"
+// CHECK: @"\01L_selector_data(method:withDouble:)" = private global [19 x i8] c"method:withDouble:\00"
+// CHECK: @"\01L_selector_data(method:separateExtMethod:)" = private global [26 x i8] c"method:separateExtMethod:\00", section "__TEXT,__objc_methname,cstring_literals"
 
 // Instance method invocation
 // CHECK: define hidden void @_TF7objc_ir15instanceMethodsFCSo1BT_([[B]]*
@@ -28,11 +28,11 @@ func instanceMethods(b: B) {
 
 // CHECK: define hidden void @_TF7objc_ir16extensionMethodsFT1bCSo1B_T_
 func extensionMethods(b b: B) {
-  // CHECK: load i8*, i8** @"\01L_selector(method:separateExtMethod:)", align 8
-  // CHECK: [[T0:%.*]] = call i8* bitcast (void ()* @objc_msgSend to i8*
-  // CHECK: [[T1:%.*]] = ptrtoint i8* [[T0]] to i64
-  // CHECK: [[T2:%.*]] = inttoptr i64 [[T1]] to i8*
-  // CHECK: call i8* @objc_retainAutoreleasedReturnValue(i8* [[T2]])
+  // CHECK:      load i8*, i8** @"\01L_selector(method:separateExtMethod:)", align 8
+  // CHECK:      [[T0:%.*]] = call i8* bitcast (void ()* @objc_msgSend to i8*
+  // CHECK-NEXT: [[T1:%.*]] = call i8* @objc_retainAutoreleasedReturnValue(i8* [[T0]])
+  // CHECK-NOT:  [[T0]]
+  // CHECK:      [[T1]]
   b.method(1, separateExtMethod:1.5)
 }
 

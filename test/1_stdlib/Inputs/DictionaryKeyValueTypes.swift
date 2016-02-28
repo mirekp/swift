@@ -369,7 +369,7 @@ struct TestBridgedKeyTy
 
   static func _forceBridgeFromObjectiveC(
     x: TestObjCKeyTy,
-    inout result: TestBridgedKeyTy?
+    result: inout TestBridgedKeyTy?
   ) {
     _bridgedKeyBridgeOperations.fetchAndAdd(1)
     result = TestBridgedKeyTy(x.value)
@@ -377,7 +377,7 @@ struct TestBridgedKeyTy
 
   static func _conditionallyBridgeFromObjectiveC(
     x: TestObjCKeyTy,
-    inout result: TestBridgedKeyTy?
+    result: inout TestBridgedKeyTy?
   ) -> Bool {
     self._forceBridgeFromObjectiveC(x, result: &result)
     return true
@@ -428,21 +428,21 @@ struct TestBridgedValueTy : CustomStringConvertible, _ObjectiveCBridgeable {
   }
 
   func _bridgeToObjectiveC() -> TestObjCValueTy {
-    TestBridgedValueTy.bridgeOperations++
+    TestBridgedValueTy.bridgeOperations += 1
     return TestObjCValueTy(value)
   }
 
   static func _forceBridgeFromObjectiveC(
     x: TestObjCValueTy,
-    inout result: TestBridgedValueTy?
+    result: inout TestBridgedValueTy?
   ) {
-    TestBridgedValueTy.bridgeOperations++
+    TestBridgedValueTy.bridgeOperations += 1
     result = TestBridgedValueTy(x.value)
   }
 
   static func _conditionallyBridgeFromObjectiveC(
     x: TestObjCValueTy,
-    inout result: TestBridgedValueTy?
+    result: inout TestBridgedValueTy?
   ) -> Bool {
     self._forceBridgeFromObjectiveC(x, result: &result)
     return true
@@ -492,7 +492,7 @@ struct TestBridgedEquatableValueTy
 
   static func _forceBridgeFromObjectiveC(
     x: TestObjCEquatableValueTy,
-    inout result: TestBridgedEquatableValueTy?
+    result: inout TestBridgedEquatableValueTy?
   ) {
     _bridgedEquatableValueBridgeOperations.fetchAndAdd(1)
     result = TestBridgedEquatableValueTy(x.value)
@@ -500,7 +500,7 @@ struct TestBridgedEquatableValueTy
 
   static func _conditionallyBridgeFromObjectiveC(
     x: TestObjCEquatableValueTy,
-    inout result: TestBridgedEquatableValueTy?
+    result: inout TestBridgedEquatableValueTy?
   ) -> Bool {
     self._forceBridgeFromObjectiveC(x, result: &result)
     return true
@@ -637,7 +637,7 @@ func slurpFastEnumerationFromSwift(
     for i in 0..<returnedCount {
       let value: AnyObject = state.itemsPtr[i]!
       sink(value)
-      ++itemsReturned
+      itemsReturned += 1
     }
     if maxItems != nil && itemsReturned >= maxItems! {
       return
@@ -681,7 +681,7 @@ func slurpFastEnumerationFromSwift(
       let value: AnyObject = d.objectForKey(key)!
       let kv = (key, value)
       sink(kv)
-      ++itemsReturned
+      itemsReturned += 1
     }
     if maxItems != nil && itemsReturned >= maxItems! {
       return
@@ -791,7 +791,7 @@ func _checkArrayFastEnumerationImpl(
   expected: [Int],
   _ a: NSArray,
   _ makeEnumerator: () -> NSFastEnumeration,
-  _ useEnumerator: (NSArray, NSFastEnumeration, (AnyObject)->()) -> Void,
+  _ useEnumerator: (NSArray, NSFastEnumeration, (AnyObject) -> ()) -> Void,
   _ convertValue: (AnyObject) -> Int
 ) {
   let expectedContentsWithoutIdentity =
@@ -924,7 +924,7 @@ func _checkSetFastEnumerationImpl(
   expected: [Int],
   _ s: NSSet,
   _ makeEnumerator: () -> NSFastEnumeration,
-  _ useEnumerator: (NSSet, NSFastEnumeration, (AnyObject)->()) -> Void,
+  _ useEnumerator: (NSSet, NSFastEnumeration, (AnyObject) -> ()) -> Void,
   _ convertMember: (AnyObject) -> Int
 ) {
   let expectedContentsWithoutIdentity =
@@ -999,7 +999,7 @@ func slurpFastEnumerationFromSwift(
     for i in 0..<returnedCount {
       let value: AnyObject = state.itemsPtr[i]!
       sink(value)
-      ++itemsReturned
+      itemsReturned += 1
     }
     if maxItems != nil && itemsReturned >= maxItems! {
       return
@@ -1142,7 +1142,7 @@ func _checkDictionaryFastEnumerationImpl(
   expected: [(Int, Int)],
   _ d: NSDictionary,
   _ makeEnumerator: () -> NSFastEnumeration,
-  _ useEnumerator: (NSDictionary, NSFastEnumeration, (AnyObjectTuple2)->()) -> Void,
+  _ useEnumerator: (NSDictionary, NSFastEnumeration, (AnyObjectTuple2) -> ()) -> Void,
   _ convertKey: (AnyObject) -> Int,
   _ convertValue: (AnyObject) -> Int
 ) {

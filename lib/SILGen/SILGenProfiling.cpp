@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -229,6 +229,9 @@ private:
   /// \brief A stack of currently live regions.
   std::vector<SourceMappingRegion> RegionStack;
 
+  /// \brief A stack of active repeat-while loops.
+  std::vector<RepeatWhileStmt *> RepeatWhileStack;
+
   CounterExpr *ExitCounter;
 
   /// \brief Return true if \c Node has an associated counter.
@@ -269,6 +272,16 @@ private:
       Counter = CounterExpr::Ref(Expr);
     else
       Counter = CounterExpr::Add(createCounter(std::move(Counter)), Expr);
+  }
+
+  /// \brief Subtract \c Expr from \c Node's counter.
+  void subtractFromCounter(ASTNode Node, CounterExpr &Expr) {
+    CounterExpr &Counter = getCounter(Node);
+    assert(!Counter.isZero() && "Cannot create a negative counter");
+    if (const CounterExpr *ReferencedCounter = Counter.getReferencedNode())
+      Counter = CounterExpr::Sub(*ReferencedCounter, Expr);
+    else
+      Counter = CounterExpr::Sub(createCounter(std::move(Counter)), Expr);
   }
 
   /// \brief Return the current region's counter.
@@ -457,6 +470,7 @@ public:
       assignCounter(RWS, CounterExpr::Zero());
       CounterExpr &BodyCounter = assignCounter(RWS->getBody());
       assignCounter(RWS->getCond(), CounterExpr::Ref(BodyCounter));
+      RepeatWhileStack.push_back(RWS);
 
     } else if (auto *FS = dyn_cast<ForStmt>(S)) {
       assignCounter(FS, CounterExpr::Zero());
@@ -505,6 +519,11 @@ public:
       if (auto *E = getConditionNode(WS->getCond()))
         addToCounter(E, getExitCounter());
 
+    } else if (auto *RWS = dyn_cast<RepeatWhileStmt>(S)) {
+      assert(RepeatWhileStack.back() == RWS && "Malformed repeat-while stack");
+      (void) RWS;
+      RepeatWhileStack.pop_back();
+
     } else if (auto *FS = dyn_cast<ForStmt>(S)) {
       // Both the condition and the increment are reached through the backedge.
       if (Expr *E = FS->getCond().getPtrOrNull())
@@ -514,7 +533,8 @@ public:
 
     } else if (auto *CS = dyn_cast<ContinueStmt>(S)) {
       // Continues create extra backedges, add them to the appropriate counters.
-      addToCounter(CS->getTarget(), getCurrentCounter());
+      if (!isa<RepeatWhileStmt>(CS->getTarget()))
+        addToCounter(CS->getTarget(), getCurrentCounter());
       if (auto *WS = dyn_cast<WhileStmt>(CS->getTarget())) {
         if (auto *E = getConditionNode(WS->getCond()))
           addToCounter(E, getCurrentCounter());
@@ -525,8 +545,11 @@ public:
 
     } else if (auto *BS = dyn_cast<BreakStmt>(S)) {
       // When we break from a loop, we need to adjust the exit count.
-      if (!isa<SwitchStmt>(BS->getTarget()))
+      if (auto *RWS = dyn_cast<RepeatWhileStmt>(BS->getTarget())) {
+        subtractFromCounter(RWS->getCond(), getCurrentCounter());
+      } else if (!isa<SwitchStmt>(BS->getTarget())) {
         addToCounter(BS->getTarget(), getCurrentCounter());
+      }
       terminateRegion(S);
 
     } else if (auto *FS = dyn_cast<FallthroughStmt>(S)) {
@@ -543,6 +566,10 @@ public:
       replaceCount(CounterExpr::Ref(getCounter(S)), getEndLoc(S));
 
     } else if (isa<ReturnStmt>(S) || isa<FailStmt>(S) || isa<ThrowStmt>(S)) {
+      // When we return, we may need to adjust some loop condition counts.
+      for (auto *RWS : RepeatWhileStack)
+        subtractFromCounter(RWS->getCond(), getCurrentCounter());
+
       terminateRegion(S);
     }
     return S;
@@ -564,8 +591,11 @@ public:
       assignCounter(E);
     } else if (auto *IE = dyn_cast<IfExpr>(E)) {
       CounterExpr &ThenCounter = assignCounter(IE->getThenExpr());
-      assignCounter(IE->getElseExpr(),
-                    CounterExpr::Sub(getCurrentCounter(), ThenCounter));
+      if (Parent.isNull())
+        assignCounter(IE->getElseExpr());
+      else
+        assignCounter(IE->getElseExpr(),
+                      CounterExpr::Sub(getCurrentCounter(), ThenCounter));
     }
 
     if (hasCounter(E))
@@ -604,9 +634,7 @@ static void walkForProfiling(AbstractFunctionDecl *Root, ASTWalker &Walker) {
 }
 
 void SILGenProfiling::assignRegionCounters(AbstractFunctionDecl *Root) {
-  SmallString<128> NameBuffer;
-  SILDeclRef(Root).mangle(NameBuffer);
-  CurrentFuncName = NameBuffer.str();
+  CurrentFuncName = SILDeclRef(Root).mangle();
 
   MapRegionCounters Mapper(RegionCounterMap);
   walkForProfiling(Root, Mapper);
@@ -646,14 +674,12 @@ void SILGenProfiling::emitCounterIncrement(SILGenBuilder &Builder,ASTNode Node){
 
   SILLocation Loc = getLocation(Node);
   SILValue Args[] = {
-      // TODO: In C++ we give this string linkage that matches the functions, so
-      // that it's uniqued appropriately across TUs.
+      // The intrinsic must refer to the function profiling name var, which is
+      // inaccessible during SILGen. Rely on irgen to rewrite the function name.
       Builder.createStringLiteral(Loc, StringRef(CurrentFuncName),
                                   StringLiteralInst::Encoding::UTF8),
       Builder.createIntegerLiteral(Loc, Int64Ty, FunctionHash),
       Builder.createIntegerLiteral(Loc, Int32Ty, NumRegionCounters),
-      // TODO: Should we take care to emit only one copy of each of the above
-      // three literals per function?
       Builder.createIntegerLiteral(Loc, Int32Ty, CounterIt->second)};
   Builder.createBuiltin(Loc, C.getIdentifier("int_instrprof_increment"),
                         SGM.Types.getEmptyTupleType(), {}, Args);

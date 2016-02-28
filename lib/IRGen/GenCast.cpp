@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -19,6 +19,7 @@
 #include "Explosion.h"
 #include "GenMeta.h"
 #include "GenProto.h"
+#include "IRGenDebugInfo.h"
 #include "IRGenFunction.h"
 #include "IRGenModule.h"
 #include "TypeInfo.h"
@@ -103,7 +104,7 @@ FailableCastResult irgen::emitClassIdenticalCast(IRGenFunction &IGF,
   // TODO: use ObjC class references
   llvm::Value *targetMetadata;
   if (allowConservative &&
-      (targetMetadata = tryEmitConstantHeapMetadataRef(IGF.IGM,
+      (targetMetadata = tryEmitConstantTypeMetadataRef(IGF.IGM,
                                           toType.getSwiftRValueType()))) {
     // ok
   } else {
@@ -196,7 +197,7 @@ llvm::Value *irgen::emitClassDowncast(IRGenFunction &IGF, llvm::Value *from,
   // FIXME: Eventually, we may want to throw.
   call->setDoesNotThrow();
 
-  llvm::Type *subTy = IGF.getTypeInfo(toType).StorageType;
+  llvm::Type *subTy = IGF.getTypeInfo(toType).getStorageType();
   return IGF.Builder.CreateBitCast(call, subTy);
 }
 
@@ -320,7 +321,9 @@ static llvm::Function *emitExistentialScalarCastFn(IRGenModule &IGM,
                                    llvm::Twine(name), IGM.getModule());
   fn->setAttributes(IGM.constructInitialAttributes());
   
-  auto IGF = IRGenFunction(IGM, fn);
+  IRGenFunction IGF(IGM, fn);
+  if (IGM.DebugInfo)
+    IGM.DebugInfo->emitArtificialFunction(IGF, fn);
   Explosion args = IGF.collectParameters();
 
   auto value = args.claimNext();
@@ -593,6 +596,7 @@ void irgen::emitScalarExistentialDowncast(IRGenFunction &IGF,
 
   // If we're doing a conditional cast, and the ObjC protocol checks failed,
   // then the cast is done.
+  Optional<ConditionalDominanceScope> condition;
   llvm::BasicBlock *origBB = nullptr, *successBB = nullptr, *contBB = nullptr;
   if (!objcProtos.empty()) {
     switch (mode) {
@@ -607,6 +611,7 @@ void irgen::emitScalarExistentialDowncast(IRGenFunction &IGF,
                                  cast<llvm::PointerType>(objcCast->getType())));
       IGF.Builder.CreateCondBr(isNull, contBB, successBB);
       IGF.Builder.emitBlock(successBB);
+      condition.emplace(IGF);
     }
     }
   }
@@ -658,6 +663,7 @@ void irgen::emitScalarExistentialDowncast(IRGenFunction &IGF,
 
   // If we had conditional ObjC checks, join the failure paths.
   if (contBB) {
+    condition.reset();
     IGF.Builder.CreateBr(contBB);
     IGF.Builder.emitBlock(contBB);
     

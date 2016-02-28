@@ -14,11 +14,10 @@ protocol EqualComparable {
 func doCompare<T : EqualComparable, U : EqualComparable>(t1: T, t2: T, u: U) -> Bool {
   var b1 = t1.isEqual(t2)
   if b1 {
-    return true;
+    return true
   }
 
-  return t1.isEqual(u) // expected-error {{cannot invoke 'isEqual' with an argument list of type '(U)'}}
-  // expected-note @-1 {{expected an argument list of type '(T)'}}
+  return t1.isEqual(u) // expected-error {{cannot invoke 'isEqual' with an argument list of type '(U)'}} expected-note {{expected an argument list of type '(T)'}}
 }
 
 protocol MethodLessComparable {
@@ -72,8 +71,8 @@ func testRuncible(x: Runcible) { // expected-error{{protocol 'Runcible' can only
 //===----------------------------------------------------------------------===//
 
 protocol Overload {
-  typealias A
-  typealias B
+  associatedtype A
+  associatedtype B
   func getA() -> A
   func getB() -> B
   func f1(_: A) -> A
@@ -128,8 +127,8 @@ func testOverload<Ovl : Overload, OtherOvl : Overload>(ovl: Ovl, ovl2: Ovl,
 // Subscripting
 //===----------------------------------------------------------------------===//
 protocol Subscriptable {
-  typealias Index
-  typealias Value
+  associatedtype Index
+  associatedtype Value
 
   func getIndex() -> Index
   func getValue() -> Value
@@ -138,7 +137,7 @@ protocol Subscriptable {
 }
 
 protocol IntSubscriptable {
-  typealias ElementType
+  associatedtype ElementType
 
   func getElement() -> ElementType
 
@@ -155,8 +154,8 @@ func subscripting<T : protocol<Subscriptable, IntSubscriptable>>(t: T) {
   element = t[17]
   t[42] = element // expected-error{{cannot assign through subscript: subscript is get-only}}
 
-  t[value] = 17 // expected-error{{cannot subscript a value of type 'T' with an index of type 'T.Value'}}
-  // expected-note @-1 {{overloads for 'subscript' exist with these partially matching parameter lists: (Self.Index), (Int)}}
+  // Suggests the Int form because we prefer concrete matches to generic matches in diagnosis.
+  t[value] = 17 // expected-error{{cannot convert value of type 'T.Value' to expected argument type 'Int'}}
 }
 
 //===----------------------------------------------------------------------===//
@@ -171,8 +170,8 @@ func staticEqCheck<T : StaticEq, U : StaticEq>(t: T, u: U) {
 
   if T.isEqual(t, y: t) { return }
   if U.isEqual(u, y: u) { return }
-  T.isEqual(t, y: u) // expected-error{{cannot invoke 'isEqual' with an argument list of type '(T, y: U)'}}
-  // expected-note @-1 {{expected an argument list of type '(T, y: T)'}}
+
+  T.isEqual(t, y: u) // expected-error{{cannot invoke 'isEqual' with an argument list of type '(T, y: U)'}} expected-note {{expected an argument list of type '(T, y: T)'}}
 }
 
 //===----------------------------------------------------------------------===//
@@ -195,17 +194,17 @@ func conformanceViaRequires<T
      >(t1: T, t2: T) -> Bool {
   let b1 = t1.isEqual(t2)
   if b1 || t1.isLess(t2) {
-    return true;
+    return true
   }
 }
 
 protocol GeneratesAnElement {
-  typealias Element : EqualComparable
+  associatedtype Element : EqualComparable
   func generate() -> Element
 }
 
 protocol AcceptsAnElement {
-  typealias Element : MethodLessComparable
+  associatedtype Element : MethodLessComparable
   func accept(e : Element)
 }
 
@@ -218,12 +217,12 @@ func impliedSameType<T : GeneratesAnElement where T : AcceptsAnElement>(t: T) {
 }
 
 protocol GeneratesAssoc1 {
-  typealias Assoc1 : EqualComparable
+  associatedtype Assoc1 : EqualComparable
   func get() -> Assoc1
 }
 
 protocol GeneratesAssoc2 {
-  typealias Assoc2 : MethodLessComparable
+  associatedtype Assoc2 : MethodLessComparable
   func get() -> Assoc2
 }
 
@@ -235,12 +234,12 @@ func simpleSameType
 }
 
 protocol GeneratesMetaAssoc1 {
-  typealias MetaAssoc1 : GeneratesAnElement
+  associatedtype MetaAssoc1 : GeneratesAnElement
   func get() -> MetaAssoc1
 }
 
 protocol GeneratesMetaAssoc2 {
-  typealias MetaAssoc2 : AcceptsAnElement
+  associatedtype MetaAssoc2 : AcceptsAnElement
   func get() -> MetaAssoc2
 }
 
@@ -258,11 +257,11 @@ func recursiveSameType
 
 // <rdar://problem/13985164>
 protocol P1 {
-  typealias Element
+  associatedtype Element
 }
 
 protocol P2 {
-  typealias AssocP1 : P1
+  associatedtype AssocP1 : P1
   func getAssocP1() -> AssocP1
 }
 

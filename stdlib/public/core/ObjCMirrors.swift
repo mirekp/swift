@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -16,7 +16,7 @@ import SwiftShims
 @_silgen_name("swift_ObjCMirror_count") 
 func _getObjCCount(_: _MagicMirrorData) -> Int
 @_silgen_name("swift_ObjCMirror_subscript") 
-func _getObjCChild(_: Int, _: _MagicMirrorData) -> (String, _MirrorType)
+func _getObjCChild<T>(_: Int, _: _MagicMirrorData) -> (T, _MirrorType)
 
 func _getObjCSummary(data: _MagicMirrorData) -> String {
   let theDescription = _swift_stdlib_objcDebugDescription(data._loadValue())

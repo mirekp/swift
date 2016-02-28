@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -54,7 +54,7 @@ func _countFormatSpecifiers(a: String) -> Int {
         lastChar = notPercentUTF16
       }
       else {
-        ++count
+        count += 1
         lastChar = c
       }
     } else {
@@ -103,7 +103,7 @@ extension String {
   /// memory referred to by `index`
   func _withOptionalOutParameter<Result>(
     index: UnsafeMutablePointer<Index>,
-    @noescape body: (UnsafeMutablePointer<Int>)->Result
+    @noescape body: (UnsafeMutablePointer<Int>) -> Result
   ) -> Result {
     var utf16Index: Int = 0
     let result = index._withBridgeValue(&utf16Index) {
@@ -118,7 +118,7 @@ extension String {
   /// it into the memory referred to by `range`
   func _withOptionalOutParameter<Result>(
     range: UnsafeMutablePointer<Range<Index>>,
-    @noescape body: (UnsafeMutablePointer<NSRange>)->Result
+    @noescape body: (UnsafeMutablePointer<NSRange>) -> Result
   ) -> Result {
     var nsRange = NSRange(location: 0, length: 0)
     let result = range._withBridgeValue(&nsRange) {
@@ -134,14 +134,14 @@ extension String {
   // + (const NSStringEncoding *)availableStringEncodings
 
   /// Returns an Array of the encodings string objects support
-  /// in the application’s environment.
+  /// in the application's environment.
   @warn_unused_result
   public static func availableStringEncodings() -> [NSStringEncoding] {
     var result = [NSStringEncoding]()
     var p = NSString.availableStringEncodings()
     while p.memory != 0 {
       result.append(p.memory)
-      ++p
+      p += 1
     }
     return result
   }
@@ -302,7 +302,7 @@ extension String {
 
   /// Returns a string containing characters the `String` and a
   /// given string have in common, starting from the beginning of each
-  /// up to the first characters that aren’t equivalent.
+  /// up to the first characters that aren't equivalent.
   @warn_unused_result
   public func commonPrefixWithString(
     aString: String, options: NSStringCompareOptions) -> String {
@@ -452,7 +452,7 @@ extension String {
 
   // @property NSString* decomposedStringWithCanonicalMapping;
 
-  /// Returns a string made by normalizing the `String`’s
+  /// Returns a string made by normalizing the `String`'s
   /// contents using Form D.
   public var decomposedStringWithCanonicalMapping: String {
     return _ns.decomposedStringWithCanonicalMapping
@@ -460,7 +460,7 @@ extension String {
 
   // @property NSString* decomposedStringWithCompatibilityMapping;
 
-  /// Returns a string made by normalizing the `String`’s
+  /// Returns a string made by normalizing the `String`'s
   /// contents using Form KD.
   public var decomposedStringWithCompatibilityMapping: String {
     return _ns.decomposedStringWithCompatibilityMapping
@@ -479,7 +479,7 @@ extension String {
   //     enumerateLinesUsingBlock:(void (^)(NSString *line, BOOL *stop))block
 
   /// Enumerates all the lines in a string.
-  public func enumerateLines(body: (line: String, inout stop: Bool)->()) {
+  public func enumerateLines(body: (line: String, stop: inout Bool) -> ()) {
     _ns.enumerateLinesUsingBlock {
       (line: String, stop: UnsafeMutablePointer<ObjCBool>)
     in
@@ -511,7 +511,7 @@ extension String {
     options opts: NSLinguisticTaggerOptions,
     orthography: NSOrthography?,
     _ body:
-      (String, Range<Index>, Range<Index>, inout Bool)->()
+      (String, Range<Index>, Range<Index>, inout Bool) -> ()
   ) {
     _ns.enumerateLinguisticTagsInRange(
       _toNSRange(range),
@@ -546,7 +546,7 @@ extension String {
     _ body: (
       substring: String?, substringRange: Range<Index>,
       enclosingRange: Range<Index>, inout Bool
-    )->()
+    ) -> ()
   ) {
     _ns.enumerateSubstringsInRange(_toNSRange(range), options: opts) {
       var stop_ = false
@@ -605,7 +605,7 @@ extension String {
   /// - Parameter encoding: The encoding to use for the returned bytes.
   ///
   /// - Parameter options: A mask to specify options to use for
-  ///   converting the receiver’s contents to `encoding` (if conversion
+  ///   converting the receiver's contents to `encoding` (if conversion
   ///   is necessary).
   ///
   /// - Parameter range: The range of characters in the receiver to get.
@@ -620,7 +620,7 @@ extension String {
   ///
   /// - Note: will get a maximum of `min(buffer.count, maxLength)` bytes.
   public func getBytes(
-    inout buffer: [UInt8],
+    buffer: inout [UInt8],
     maxLength maxBufferCount: Int,
     usedLength usedBufferCount: UnsafeMutablePointer<Int>,
     encoding: NSStringEncoding,
@@ -645,11 +645,11 @@ extension String {
   //     maxLength:(NSUInteger)maxBufferCount
   //     encoding:(NSStringEncoding)encoding
 
-  /// Converts the `String`’s content to a given encoding and
+  /// Converts the `String`'s content to a given encoding and
   /// stores them in a buffer.
   /// - Note: will store a maximum of `min(buffer.count, maxLength)` bytes.
   public func getCString(
-    inout buffer: [CChar], maxLength: Int, encoding: NSStringEncoding
+    buffer: inout [CChar], maxLength: Int, encoding: NSStringEncoding
   ) -> Bool {
     return _ns.getCString(&buffer, maxLength: min(buffer.count, maxLength),
                           encoding: encoding)
@@ -665,7 +665,7 @@ extension String {
   /// - Note: will store a maximum of `min(buffer.count, maxLength)` bytes.
   @available(*, unavailable, message="Use getFileSystemRepresentation on NSURL instead.")
   public func getFileSystemRepresentation(
-    inout buffer: [CChar], maxLength: Int) -> Bool {
+    buffer: inout [CChar], maxLength: Int) -> Bool {
     return _ns.getFileSystemRepresentation(
       &buffer, maxLength: min(buffer.count, maxLength))
   }
@@ -923,7 +923,7 @@ extension String {
 
   /// Returns a `String` object initialized by using a given
   /// format string as a template into which the remaining argument
-  /// values are substituted according to the user’s default locale.
+  /// values are substituted according to the user's default locale.
   public init(format: String, arguments: [CVarArgType]) {
     self = String(format: format, locale: nil, arguments: arguments)
   }
@@ -1120,7 +1120,7 @@ extension String {
   // @property NSString* pathExtension;
 
   /// Interprets the `String` as a path and returns the
-  /// `String`’s extension, if any.
+  /// `String`'s extension, if any.
   @available(*, unavailable, message="Use pathExtension on NSURL instead.")
   public var pathExtension: String {
     return _ns.pathExtension
@@ -1128,7 +1128,7 @@ extension String {
 
   // @property NSString* precomposedStringWithCanonicalMapping;
 
-  /// Returns a string made by normalizing the `String`’s
+  /// Returns a string made by normalizing the `String`'s
   /// contents using Form C.
   public var precomposedStringWithCanonicalMapping: String {
     return _ns.precomposedStringWithCanonicalMapping
@@ -1136,7 +1136,7 @@ extension String {
 
   // @property NSString * precomposedStringWithCompatibilityMapping;
 
-  /// Returns a string made by normalizing the `String`’s
+  /// Returns a string made by normalizing the `String`'s
   /// contents using Form KC.
   public var precomposedStringWithCompatibilityMapping: String {
     return _ns.precomposedStringWithCompatibilityMapping
@@ -1181,7 +1181,7 @@ extension String {
     aSet: NSCharacterSet,
     options mask:NSStringCompareOptions = [],
     range aRange: Range<Index>? = nil
-  )-> Range<Index>? {
+  ) -> Range<Index>? {
     return _optionalRange(
       _ns.rangeOfCharacterFromSet(
         aSet, options: mask,
@@ -1315,7 +1315,7 @@ extension String {
     allowedCharacters: NSCharacterSet
   ) -> String? {
     // FIXME: the documentation states that this method can return nil if the
-    // transformation is not possible, without going into futher details.  The
+    // transformation is not possible, without going into further details.  The
     // implementation can only return nil if malloc() returns nil, so in
     // practice this is not possible.  Still, to be consistent with
     // documentation, we declare the method as returning an optional String.
@@ -1369,7 +1369,7 @@ extension String {
   @available(*, unavailable, message="Use URLByAppendingPathExtension on NSURL instead.")
   public func stringByAppendingPathExtension(ext: String) -> String? {
     // FIXME: This method can return nil in practice, for example when self is
-    // an empty string.  OTOH, this is not documented, documentatios says that
+    // an empty string.  OTOH, this is not documented, documentation says that
     // it always returns a string.
     //
     // <rdar://problem/17902469> -[NSString stringByAppendingPathExtension] can
@@ -1537,7 +1537,7 @@ extension String {
   // - (NSArray *)stringsByAppendingPaths:(NSArray *)paths
 
   /// Returns an array of strings made by separately appending
-  /// to the `String` each string in in a given array.
+  /// to the `String` each string in a given array.
   @available(*, unavailable, message="map over paths with URLByAppendingPathComponent instead.")
   public func stringsByAppendingPaths(paths: [String]) -> [String] {
     return _ns.stringsByAppendingPaths(paths)

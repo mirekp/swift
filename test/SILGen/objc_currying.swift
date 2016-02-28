@@ -46,7 +46,6 @@ func curry_bridged(x: CurryTest) -> String! -> String! {
 // CHECK:   function_ref @swift_StringToNSString
 // CHECK:   [[METHOD:%.*]] = class_method [volatile] %1 : $CurryTest, #CurryTest.bridged!1.foreign
 // CHECK:   [[RES:%.*]] = apply [[METHOD]]({{%.*}}, %1) : $@convention(objc_method) (ImplicitlyUnwrappedOptional<NSString>, CurryTest) -> @autoreleased ImplicitlyUnwrappedOptional<NSString>
-// CHECK:   strong_retain_autoreleased [[RES]]
 // CHECK:   function_ref @swift_NSStringToString
 // CHECK:   strong_release %1
 // CHECK:   return {{%.*}} : $ImplicitlyUnwrappedOptional<String>
@@ -85,7 +84,7 @@ func curry_pod_AnyObject(x: AnyObject) -> Int -> Int {
 // CHECK:         dynamic_method_br [[SELF:%.*]] : $@opened({{.*}}) AnyObject, #CurryTest.normalOwnership!1.foreign, [[HAS_METHOD:bb[0-9]+]]
 // CHECK:       [[HAS_METHOD]]([[METHOD:%.*]] : $@convention(objc_method) (ImplicitlyUnwrappedOptional<CurryTest>, @opened({{.*}}) AnyObject) -> @autoreleased ImplicitlyUnwrappedOptional<CurryTest>):
 // CHECK:         [[PA:%.*]] = partial_apply [[METHOD]]([[SELF]])
-// CHECK:         [[THUNK:%.*]] = function_ref @_TTRXFo_dGSQCSo9CurryTest__aGSQS___XFo_oGSQS___oGSQS___
+// CHECK:         [[THUNK:%.*]] = function_ref @_TTRXFo_dGSQCSo9CurryTest__oGSQS___XFo_oGSQS___oGSQS___
 // CHECK:         partial_apply [[THUNK]]([[PA]])
 func curry_normalOwnership_AnyObject(x: AnyObject) -> CurryTest! -> CurryTest! {
   return x.normalOwnership!
@@ -106,7 +105,7 @@ func curry_weirdOwnership_AnyObject(x: AnyObject) -> CurryTest! -> CurryTest! {
 // CHECK:         dynamic_method_br [[SELF:%.*]] : $@opened({{.*}}) AnyObject, #CurryTest.bridged!1.foreign, [[HAS_METHOD:bb[0-9]+]]
 // CHECK:       [[HAS_METHOD]]([[METHOD:%.*]] : $@convention(objc_method) (ImplicitlyUnwrappedOptional<NSString>, @opened({{.*}}) AnyObject) -> @autoreleased ImplicitlyUnwrappedOptional<NSString>):
 // CHECK:         [[PA:%.*]] = partial_apply [[METHOD]]([[SELF]])
-// CHECK:         [[THUNK:%.*]] = function_ref @_TTRXFo_dGSQCSo8NSString__aGSQS___XFo_oGSQSS__oGSQSS__ 
+// CHECK:         [[THUNK:%.*]] = function_ref @_TTRXFo_dGSQCSo8NSString__oGSQS___XFo_oGSQSS__oGSQSS__
 // CHECK:         partial_apply [[THUNK]]([[PA]])
 func curry_bridged_AnyObject(x: AnyObject) -> String! -> String! {
   return x.bridged!
@@ -118,7 +117,7 @@ func curry_bridged_AnyObject(x: AnyObject) -> String! -> String! {
 // CHECK:         dynamic_method_br [[SELF:%.*]] : $@opened({{.*}}) AnyObject, #CurryTest.returnsSelf!1.foreign, [[HAS_METHOD:bb[0-9]+]]
 // CHECK:       [[HAS_METHOD]]([[METHOD:%.*]] : $@convention(objc_method) (@opened({{.*}}) AnyObject) -> @autoreleased ImplicitlyUnwrappedOptional<AnyObject>):
 // CHECK:         [[PA:%.*]] = partial_apply [[METHOD]]([[SELF]])
-// CHECK:         [[THUNK:%.*]] = function_ref @_TTRXFo__aGSQPs9AnyObject___XFo__oGSQPS____
+// CHECK:         [[THUNK:%.*]] = function_ref @_TTRXFo__oGSQPs9AnyObject___XFo_iT__iGSQPS____
 // CHECK:         partial_apply [[THUNK]]([[PA]])
 func curry_returnsSelf_AnyObject(x: AnyObject) -> () -> AnyObject! {
   return x.returnsSelf!

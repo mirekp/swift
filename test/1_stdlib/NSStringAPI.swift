@@ -11,6 +11,15 @@
 //
 
 import StdlibUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
+
 import Foundation
 import StdlibUnittestFoundationExtras
 
@@ -202,7 +211,7 @@ NSStringAPIs.test("init(UTF8String:)") {
   var i = 0
   for b in s.utf8 {
     up[i] = b
-    i++
+    i += 1
   }
   up[i] = 0
   expectOptionalEqual(s, String(UTF8String: UnsafePointer(up)))
@@ -259,12 +268,12 @@ NSStringAPIs.test("localizedCapitalizedString") {
 ///   executed in the given localeID
 func expectLocalizedEquality(
   expected: String,
-  _ op: (_: NSLocale?)->String,
+  _ op: (_: NSLocale?) -> String,
   _ localeID: String? = nil,
-  @autoclosure _ message: ()->String = "",
+  @autoclosure _ message: () -> String = "",
   showFrame: Bool = true,
   stackTrace: SourceLocStack = SourceLocStack(),  
-  file: String = __FILE__, line: UInt = __LINE__
+  file: String = #file, line: UInt = #line
 ) {
   let trace = stackTrace.pushIf(showFrame, file: file, line: line)
 
@@ -347,13 +356,13 @@ NSStringAPIs.test("compare(_:options:range:locale:)") {
   expectEqual(NSComparisonResult.OrderedSame,
       "абв".compare("абВ", options: .CaseInsensitiveSearch))
 
-  if true {
+  do {
     let s = "abcd"
     let r = s.startIndex.successor()..<s.endIndex
     expectEqual(NSComparisonResult.OrderedSame,
         s.compare("bcd", range: r))
   }
-  if true {
+  do {
     let s = "абвг"
     let r = s.startIndex.successor()..<s.endIndex
     expectEqual(NSComparisonResult.OrderedSame,
@@ -368,12 +377,12 @@ NSStringAPIs.test("compare(_:options:range:locale:)") {
 
 NSStringAPIs.test("completePathIntoString(_:caseSensitive:matchesIntoArray:filterTypes)") {
   let (existingPath, nonExistentPath) = createNSStringTemporaryFile()
-  if true {
+  do {
     var count = nonExistentPath.completePathIntoString(caseSensitive: false)
     expectEqual(0, count)
   }
 
-  if true {
+  do {
     var outputName = "None Found"
     var count = nonExistentPath.completePathIntoString(
         &outputName, caseSensitive: false)
@@ -382,7 +391,7 @@ NSStringAPIs.test("completePathIntoString(_:caseSensitive:matchesIntoArray:filte
     expectEqual("None Found", outputName)
   }
 
-  if true {
+  do {
     var outputName = "None Found"
     var outputArray: [String] = [ "foo", "bar" ]
     var count = nonExistentPath.completePathIntoString(
@@ -393,12 +402,12 @@ NSStringAPIs.test("completePathIntoString(_:caseSensitive:matchesIntoArray:filte
     expectEqual([ "foo", "bar" ], outputArray)
   }
 
-  if true {
+  do {
     var count = existingPath.completePathIntoString(caseSensitive: false)
     expectEqual(1, count)
   }
 
-  if true {
+  do {
     var outputName = "None Found"
     var count = existingPath.completePathIntoString(
         &outputName, caseSensitive: false)
@@ -407,7 +416,7 @@ NSStringAPIs.test("completePathIntoString(_:caseSensitive:matchesIntoArray:filte
     expectEqual(existingPath, outputName)
   }
 
-  if true {
+  do {
     var outputName = "None Found"
     var outputArray: [String] = [ "foo", "bar" ]
     var count = existingPath.completePathIntoString(
@@ -418,7 +427,7 @@ NSStringAPIs.test("completePathIntoString(_:caseSensitive:matchesIntoArray:filte
     expectEqual([ existingPath ], outputArray)
   }
 
-  if true {
+  do {
     var outputName = "None Found"
     var count = existingPath.completePathIntoString(
         &outputName, caseSensitive: false, filterTypes: [ "txt" ])
@@ -475,7 +484,7 @@ NSStringAPIs.test("cStringUsingEncoding(_:)") {
 NSStringAPIs.test("dataUsingEncoding(_:allowLossyConversion:)") {
   expectEmpty("あいう".dataUsingEncoding(NSASCIIStringEncoding, allowLossyConversion: false))
 
-  if true {
+  do {
     let data = "あいう".dataUsingEncoding(NSUTF8StringEncoding)
     let bytes = Array(
       UnsafeBufferPointer(
@@ -512,7 +521,7 @@ NSStringAPIs.test("decomposedStringWithCompatibilityMapping") {
 NSStringAPIs.test("enumerateLines(_:)") {
   var lines: [String] = []
   "abc\n\ndefghi\njklm".enumerateLines {
-    (line: String, inout stop: Bool)
+    (line: String, stop: inout Bool)
   in
     lines.append(line)
     if lines.count == 3 {
@@ -533,7 +542,7 @@ NSStringAPIs.test("enumerateLinguisticTagsInRange(_:scheme:options:orthography:_
       scheme: NSLinguisticTagSchemeTokenType,
       options: [],
       orthography: nil) {
-    (tag: String, tokenRange: Range<String.Index>, sentenceRange: Range<String.Index>, inout stop: Bool)
+    (tag: String, tokenRange: Range<String.Index>, sentenceRange: Range<String.Index>, stop: inout Bool)
   in
     tags.append(tag)
     tokens.append(s[tokenRange])
@@ -555,12 +564,12 @@ NSStringAPIs.test("enumerateSubstringsInRange(_:options:_:)") {
   let s = "え\u{304b}\u{3099}お\u{263a}\u{fe0f}😀😊"
   let startIndex = s.startIndex.advancedBy(1)
   let endIndex = s.startIndex.advancedBy(5)
-  if true {
+  do {
     var substrings: [String] = []
     s.enumerateSubstringsInRange(startIndex..<endIndex,
       options: NSStringEnumerationOptions.ByComposedCharacterSequences) {
       (substring: String?, substringRange: Range<String.Index>,
-       enclosingRange: Range<String.Index>, inout stop: Bool)
+       enclosingRange: Range<String.Index>, stop: inout Bool)
     in
       substrings.append(substring!)
       expectEqual(substring, s[substringRange])
@@ -568,12 +577,12 @@ NSStringAPIs.test("enumerateSubstringsInRange(_:options:_:)") {
     }
     expectEqual([ "\u{304b}\u{3099}", "お", "☺️", "😀" ], substrings)
   }
-  if true {
+  do {
     var substrings: [String] = []
     s.enumerateSubstringsInRange(startIndex..<endIndex,
       options: [.ByComposedCharacterSequences, .SubstringNotRequired]) {
       (substring_: String?, substringRange: Range<String.Index>,
-       enclosingRange: Range<String.Index>, inout stop: Bool)
+       enclosingRange: Range<String.Index>, stop: inout Bool)
     in
       expectEmpty(substring_)
       let substring = s[substringRange]
@@ -593,7 +602,7 @@ NSStringAPIs.test("getBytes(_:maxLength:usedLength:encoding:options:range:remain
   let s = "abc абв def где gh жз zzz"
   let startIndex = s.startIndex.advancedBy(8)
   let endIndex = s.startIndex.advancedBy(22)
-  if true {
+  do {
     // 'maxLength' is limiting.
     let bufferLength = 100
     var expectedStr: [UInt8] = Array("def где ".utf8)
@@ -613,7 +622,7 @@ NSStringAPIs.test("getBytes(_:maxLength:usedLength:encoding:options:range:remain
     expectEqual(remainingRange.startIndex, startIndex.advancedBy(8))
     expectEqual(remainingRange.endIndex, endIndex)
   }
-  if true {
+  do {
     // 'bufferLength' is limiting.  Note that the buffer is not filled
     // completely, since doing that would break a UTF sequence.
     let bufferLength = 5
@@ -634,7 +643,7 @@ NSStringAPIs.test("getBytes(_:maxLength:usedLength:encoding:options:range:remain
     expectEqual(remainingRange.startIndex, startIndex.advancedBy(4))
     expectEqual(remainingRange.endIndex, endIndex)
   }
-  if true {
+  do {
     // 'range' is converted completely.
     let bufferLength = 100
     var expectedStr: [UInt8] = Array("def где gh жз ".utf8)
@@ -654,7 +663,7 @@ NSStringAPIs.test("getBytes(_:maxLength:usedLength:encoding:options:range:remain
     expectEqual(remainingRange.startIndex, endIndex)
     expectEqual(remainingRange.endIndex, endIndex)
   }
-  if true {
+  do {
     // Inappropriate encoding.
     let bufferLength = 100
     var expectedStr: [UInt8] = Array("def ".utf8)
@@ -678,8 +687,8 @@ NSStringAPIs.test("getBytes(_:maxLength:usedLength:encoding:options:range:remain
 
 NSStringAPIs.test("getCString(_:maxLength:encoding:)") {
   var s = "abc あかさた"
-  if true {
-    // The largest buffer that can not accommodate the string plus null terminator.
+  do {
+    // The largest buffer that cannot accommodate the string plus null terminator.
     let bufferLength = 16
     var buffer = Array(
       count: bufferLength, repeatedValue: CChar(bitPattern: 0xff))
@@ -687,7 +696,7 @@ NSStringAPIs.test("getCString(_:maxLength:encoding:)") {
       encoding: NSUTF8StringEncoding)
     expectFalse(result)
   }
-  if true {
+  do {
     // The smallest buffer where the result can fit.
     let bufferLength = 17
     var expectedStr = "abc あかさた\0".utf8.map { CChar(bitPattern: $0) }
@@ -701,7 +710,7 @@ NSStringAPIs.test("getCString(_:maxLength:encoding:)") {
     expectTrue(result)
     expectEqualSequence(expectedStr, buffer)
   }
-  if true {
+  do {
     // Limit buffer size with 'maxLength'.
     let bufferLength = 100
     var buffer = Array(
@@ -710,7 +719,7 @@ NSStringAPIs.test("getCString(_:maxLength:encoding:)") {
       encoding: NSUTF8StringEncoding)
     expectFalse(result)
   }
-  if true {
+  do {
     // String with unpaired surrogates.
     let illFormedUTF16 = NonContiguousNSString([ 0xd800 ]) as String
     let bufferLength = 100
@@ -725,7 +734,7 @@ NSStringAPIs.test("getCString(_:maxLength:encoding:)") {
 NSStringAPIs.test("getLineStart(_:end:contentsEnd:forRange:)") {
   let s = "Глокая куздра\nштеко будланула\nбокра и кудрячит\nбокрёнка."
   let r = s.startIndex.advancedBy(16)..<s.startIndex.advancedBy(35)
-  if true {
+  do {
     var outStartIndex = s.startIndex
     var outLineEndIndex = s.startIndex
     var outContentsEndIndex = s.startIndex
@@ -741,7 +750,7 @@ NSStringAPIs.test("getLineStart(_:end:contentsEnd:forRange:)") {
 NSStringAPIs.test("getParagraphStart(_:end:contentsEnd:forRange:)") {
   let s = "Глокая куздра\nштеко будланула\u{2028}бокра и кудрячит\u{2028}бокрёнка.\n Абв."
   let r = s.startIndex.advancedBy(16)..<s.startIndex.advancedBy(35)
-  if true {
+  do {
     var outStartIndex = s.startIndex
     var outEndIndex = s.startIndex
     var outContentsEndIndex = s.startIndex
@@ -870,7 +879,7 @@ NSStringAPIs.test("lengthOfBytesUsingEncoding(_:)") {
 NSStringAPIs.test("lineRangeForRange(_:)") {
   let s = "Глокая куздра\nштеко будланула\nбокра и кудрячит\nбокрёнка."
   let r = s.startIndex.advancedBy(16)..<s.startIndex.advancedBy(35)
-  if true {
+  do {
     let result = s.lineRangeForRange(r)
     expectEqual("штеко будланула\nбокра и кудрячит\n", s[result])
   }
@@ -1016,17 +1025,17 @@ NSStringAPIs.test("lowercaseStringWithLocale(_:)") {
 }
 
 NSStringAPIs.test("maximumLengthOfBytesUsingEncoding(_:)") {
-  if true {
+  do {
     let s = "abc"
     expectLE(s.utf8.count,
         s.maximumLengthOfBytesUsingEncoding(NSUTF8StringEncoding))
   }
-  if true {
+  do {
     let s = "abc абв"
     expectLE(s.utf8.count,
         s.maximumLengthOfBytesUsingEncoding(NSUTF8StringEncoding))
   }
-  if true {
+  do {
     let s = "\u{1F60A}"
     expectLE(s.utf8.count,
         s.maximumLengthOfBytesUsingEncoding(NSUTF8StringEncoding))
@@ -1036,7 +1045,7 @@ NSStringAPIs.test("maximumLengthOfBytesUsingEncoding(_:)") {
 NSStringAPIs.test("paragraphRangeForRange(_:)") {
   let s = "Глокая куздра\nштеко будланула\u{2028}бокра и кудрячит\u{2028}бокрёнка.\n Абв."
   let r = s.startIndex.advancedBy(16)..<s.startIndex.advancedBy(35)
-  if true {
+  do {
     let result = s.paragraphRangeForRange(r)
     expectEqual("штеко будланула\u{2028}бокра и кудрячит\u{2028}бокрёнка.\n", s[result])
   }
@@ -1086,25 +1095,25 @@ NSStringAPIs.test("propertyListFromStringsFileFormat()") {
 }
 
 NSStringAPIs.test("rangeOfCharacterFromSet(_:options:range:)") {
-  if true {
+  do {
     let charset = NSCharacterSet(charactersInString: "абв")
-    if true {
+    do {
       let s = "Глокая куздра"
       let r = s.rangeOfCharacterFromSet(charset)!
       expectEqual(s.startIndex.advancedBy(4), r.startIndex)
       expectEqual(s.startIndex.advancedBy(5), r.endIndex)
     }
-    if true {
+    do {
       expectEmpty("клмн".rangeOfCharacterFromSet(charset))
     }
-    if true {
+    do {
       let s = "абвклмнабвклмн"
       let r = s.rangeOfCharacterFromSet(charset,
           options: .BackwardsSearch)!
       expectEqual(s.startIndex.advancedBy(9), r.startIndex)
       expectEqual(s.startIndex.advancedBy(10), r.endIndex)
     }
-    if true {
+    do {
       let s = "абвклмнабв"
       let r = s.rangeOfCharacterFromSet(charset,
           range: s.startIndex.advancedBy(3)..<s.endIndex)!
@@ -1113,23 +1122,23 @@ NSStringAPIs.test("rangeOfCharacterFromSet(_:options:range:)") {
     }
   }
 
-  if true {
+  do {
     let charset = NSCharacterSet(charactersInString: "\u{305f}\u{3099}")
     expectEmpty("\u{3060}".rangeOfCharacterFromSet(charset))
   }
-  if true {
+  do {
     let charset = NSCharacterSet(charactersInString: "\u{3060}")
     expectEmpty("\u{305f}\u{3099}".rangeOfCharacterFromSet(charset))
   }
 
-  if true {
+  do {
     let charset = NSCharacterSet(charactersInString: "\u{1F600}")
-    if true {
+    do {
       let s = "abc\u{1F600}"
       expectEqual("\u{1F600}",
           s[s.rangeOfCharacterFromSet(charset)!])
     }
-    if true {
+    do {
       expectEmpty("abc\u{1F601}".rangeOfCharacterFromSet(charset))
     }
   }
@@ -1167,18 +1176,18 @@ func toIntRange(
 }
 
 NSStringAPIs.test("rangeOfString(_:options:range:locale:)") {
-  if true {
+  do {
     let s = ""
     expectEmpty(s.rangeOfString(""))
     expectEmpty(s.rangeOfString("abc"))
   }
-  if true {
+  do {
     let s = "abc"
     expectEmpty(s.rangeOfString(""))
     expectEmpty(s.rangeOfString("def"))
     expectOptionalEqual(0..<3, toIntRange(s, s.rangeOfString("abc")))
   }
-  if true {
+  do {
     let s = "さ\u{3099}し\u{3099}す\u{3099}せ\u{3099}そ\u{3099}"
     expectOptionalEqual(2..<3, toIntRange(s, s.rangeOfString("す\u{3099}")))
     expectOptionalEqual(2..<3, toIntRange(s, s.rangeOfString("\u{305a}")))
@@ -1187,14 +1196,14 @@ NSStringAPIs.test("rangeOfString(_:options:range:locale:)") {
     expectEmpty(s.rangeOfString("す"))
 
     // Note: here `rangeOfString` API produces indexes that don't point between
-    // grapheme cluster boundaries -- these can not be created with public
+    // grapheme cluster boundaries -- these cannot be created with public
     // String interface.
     //
-    // FIXME: why does this seach succeed and the above queries fail?  There is
+    // FIXME: why does this search succeed and the above queries fail?  There is
     // no apparent pattern.
     expectEqual("\u{3099}", s[s.rangeOfString("\u{3099}")!])
   }
-  if true {
+  do {
     let s = "а\u{0301}б\u{0301}в\u{0301}г\u{0301}"
     expectOptionalEqual(0..<1, toIntRange(s, s.rangeOfString("а\u{0301}")))
     expectOptionalEqual(1..<2, toIntRange(s, s.rangeOfString("б\u{0301}")))
@@ -1311,7 +1320,7 @@ NSStringAPIs.test("localizedStandardRangeOfString(_:)") {
       expectEqual(0..<1, rangeOfString("a", "a\u{0301}"))
       expectEqual(0..<1, rangeOfString("a\u{0301}", "a\u{0301}"))
       expectEqual(0..<1, rangeOfString("a\u{0301}", "a"))
-      if true {
+      do {
         // FIXME: Indices that don't correspond to grapheme cluster boundaries.
         let s = "a\u{0301}"
         expectEqual(
@@ -1395,8 +1404,8 @@ NSStringAPIs.test("stringByFoldingWithOptions(_:locale:)") {
 
   func fwo(
     s: String, _ options: NSStringCompareOptions
-  )(loc: NSLocale?) -> String {
-    return s.stringByFoldingWithOptions(options, locale: loc)
+  ) -> (NSLocale?) -> String {
+    return { loc in s.stringByFoldingWithOptions(options, locale: loc) }
   }
   
   expectLocalizedEquality("abcd", fwo("abCD", .CaseInsensitiveSearch), "en")
@@ -1449,7 +1458,7 @@ NSStringAPIs.test("stringByRemovingPercentEncoding") {
 }
 
 NSStringAPIs.test("stringByReplacingCharactersInRange(_:withString:)") {
-  if true {
+  do {
     let empty = ""
     expectEqual("", empty.stringByReplacingCharactersInRange(
       empty.startIndex..<empty.startIndex, withString: ""))
@@ -1502,7 +1511,7 @@ NSStringAPIs.test("stringByReplacingCharactersInRange(_:withString:)") {
 }
 
 NSStringAPIs.test("stringByReplacingOccurrencesOfString(_:withString:options:range:)") {
-  if true {
+  do {
     let empty = ""
     expectEqual("", empty.stringByReplacingOccurrencesOfString(
       "", withString: ""))
@@ -1816,270 +1825,27 @@ NSStringAPIs.test("writeToURL(_:atomically:encoding:error:)") {
 
 NSStringAPIs.test("stringByApplyingTransform(_:reverse:)") {
   if #available(OSX 10.11, iOS 9.0, *) {
-    if true {
+    do {
       let source = "tre\u{300}s k\u{fc}hl"
       expectEqual(
         "tres kuhl",
         source.stringByApplyingTransform(
           NSStringTransformStripDiacritics, reverse: false))
     }
-    if true {
+    do {
       let source = "hiragana"
       expectEqual(
         "ひらがな",
         source.stringByApplyingTransform(
           NSStringTransformLatinToHiragana, reverse: false))
     }
-    if true {
+    do {
       let source = "ひらがな"
       expectEqual(
         "hiragana",
         source.stringByApplyingTransform(
           NSStringTransformLatinToHiragana, reverse: true))
     }
-  }
-}
-
-struct ComparisonTest {
-  let expectedUnicodeCollation: ExpectedComparisonResult
-  let lhs: String
-  let rhs: String
-  let loc: SourceLoc
-
-  init(
-    _ expectedUnicodeCollation: ExpectedComparisonResult,
-    _ lhs: String, _ rhs: String,
-    file: String = __FILE__, line: UInt = __LINE__
-  ) {
-    self.expectedUnicodeCollation = expectedUnicodeCollation
-    self.lhs = lhs
-    self.rhs = rhs
-    self.loc = SourceLoc(file, line, comment: "test data")
-  }
-}
-
-let comparisonTests = [
-  ComparisonTest(.EQ, "", ""),
-  ComparisonTest(.LT, "", "a"),
-
-  // ASCII cases
-  ComparisonTest(.LT, "t", "tt"),
-  ComparisonTest(.GT, "t", "Tt"),
-  ComparisonTest(.GT, "\u{0}", ""),
-  ComparisonTest(.EQ, "\u{0}", "\u{0}"),
-  // Currently fails:
-  // ComparisonTest(.LT, "\r\n", "t"),
-  // ComparisonTest(.GT, "\r\n", "\n"),
-  // ComparisonTest(.LT, "\u{0}", "\u{0}\u{0}"),
-
-  // Whitespace
-  // U+000A LINE FEED (LF)
-  // U+000B LINE TABULATION
-  // U+000C FORM FEED (FF)
-  // U+0085 NEXT LINE (NEL)
-  // U+2028 LINE SEPARATOR
-  // U+2029 PARAGRAPH SEPARATOR
-  ComparisonTest(.GT, "\u{0085}", "\n"),
-  ComparisonTest(.GT, "\u{000b}", "\n"),
-  ComparisonTest(.GT, "\u{000c}", "\n"),
-  ComparisonTest(.GT, "\u{2028}", "\n"),
-  ComparisonTest(.GT, "\u{2029}", "\n"),
-  ComparisonTest(.GT, "\r\n\r\n", "\r\n"),
-
-  // U+0301 COMBINING ACUTE ACCENT
-  // U+00E1 LATIN SMALL LETTER A WITH ACUTE
-  ComparisonTest(.EQ, "a\u{301}", "\u{e1}"),
-  ComparisonTest(.LT, "a", "a\u{301}"),
-  ComparisonTest(.LT, "a", "\u{e1}"),
-
-  // U+304B HIRAGANA LETTER KA
-  // U+304C HIRAGANA LETTER GA
-  // U+3099 COMBINING KATAKANA-HIRAGANA VOICED SOUND MARK
-  ComparisonTest(.EQ, "\u{304b}", "\u{304b}"),
-  ComparisonTest(.EQ, "\u{304c}", "\u{304c}"),
-  ComparisonTest(.LT, "\u{304b}", "\u{304c}"),
-  ComparisonTest(.LT, "\u{304b}", "\u{304c}\u{3099}"),
-  ComparisonTest(.EQ, "\u{304c}", "\u{304b}\u{3099}"),
-  ComparisonTest(.LT, "\u{304c}", "\u{304c}\u{3099}"),
-
-  // U+212B ANGSTROM SIGN
-  // U+030A COMBINING RING ABOVE
-  // U+00C5 LATIN CAPITAL LETTER A WITH RING ABOVE
-  ComparisonTest(.EQ, "\u{212b}", "A\u{30a}"),
-  ComparisonTest(.EQ, "\u{212b}", "\u{c5}"),
-  ComparisonTest(.EQ, "A\u{30a}", "\u{c5}"),
-  ComparisonTest(.LT, "A\u{30a}", "a"),
-  ComparisonTest(.LT, "A", "A\u{30a}"),
-
-  // U+2126 OHM SIGN
-  // U+03A9 GREEK CAPITAL LETTER OMEGA
-  ComparisonTest(.EQ, "\u{2126}", "\u{03a9}"),
-
-  // U+0323 COMBINING DOT BELOW
-  // U+0307 COMBINING DOT ABOVE
-  // U+1E63 LATIN SMALL LETTER S WITH DOT BELOW
-  // U+1E69 LATIN SMALL LETTER S WITH DOT BELOW AND DOT ABOVE
-  ComparisonTest(.EQ, "\u{1e69}", "s\u{323}\u{307}"),
-  ComparisonTest(.EQ, "\u{1e69}", "s\u{307}\u{323}"),
-  ComparisonTest(.EQ, "\u{1e69}", "\u{1e63}\u{307}"),
-  ComparisonTest(.EQ, "\u{1e63}", "s\u{323}"),
-  ComparisonTest(.EQ, "\u{1e63}\u{307}", "s\u{323}\u{307}"),
-  ComparisonTest(.EQ, "\u{1e63}\u{307}", "s\u{307}\u{323}"),
-  ComparisonTest(.LT, "s\u{323}", "\u{1e69}"),
-
-  // U+FB01 LATIN SMALL LIGATURE FI
-  ComparisonTest(.EQ, "\u{fb01}", "\u{fb01}"),
-  ComparisonTest(.LT, "fi", "\u{fb01}"),
-
-  // Test that Unicode collation is performed in deterministic mode.
-  //
-  // U+0301 COMBINING ACUTE ACCENT
-  // U+0341 COMBINING ACUTE TONE MARK
-  // U+0954 DEVANAGARI ACUTE ACCENT
-  //
-  // Collation elements from DUCET:
-  // 0301  ; [.0000.0024.0002] # COMBINING ACUTE ACCENT
-  // 0341  ; [.0000.0024.0002] # COMBINING ACUTE TONE MARK
-  // 0954  ; [.0000.0024.0002] # DEVANAGARI ACUTE ACCENT
-  //
-  // U+0301 and U+0954 don't decompose in the canonical decomposition mapping.
-  // U+0341 has a canonical decomposition mapping of U+0301.
-  ComparisonTest(.EQ, "\u{0301}", "\u{0341}"),
-  ComparisonTest(.LT, "\u{0301}", "\u{0954}"),
-  ComparisonTest(.LT, "\u{0341}", "\u{0954}"),
-]
-
-func checkStringComparison(
-  expected: ExpectedComparisonResult,
-  _ lhs: String, _ rhs: String, _ stackTrace: SourceLocStack
-) {
-  // String / String
-  expectEqual(expected.isEQ(), lhs == rhs, stackTrace: stackTrace)
-  expectEqual(expected.isNE(), lhs != rhs, stackTrace: stackTrace)
-  checkHashable(
-    expected.isEQ(), lhs, rhs, stackTrace: stackTrace.withCurrentLoc())
-
-  expectEqual(expected.isLT(), lhs < rhs, stackTrace: stackTrace)
-  expectEqual(expected.isLE(), lhs <= rhs, stackTrace: stackTrace)
-  expectEqual(expected.isGE(), lhs >= rhs, stackTrace: stackTrace)
-  expectEqual(expected.isGT(), lhs > rhs, stackTrace: stackTrace)
-  checkComparable(expected, lhs, rhs, stackTrace: stackTrace.withCurrentLoc())
-
-  // NSString / NSString
-  let lhsNSString = lhs as NSString
-  let rhsNSString = rhs as NSString
-  let expectedEqualUnicodeScalars =
-    Array(lhs.unicodeScalars) == Array(rhs.unicodeScalars)
-  // FIXME: Swift String and NSString comparison may not be equal.
-  expectEqual(
-    expectedEqualUnicodeScalars, lhsNSString == rhsNSString,
-    stackTrace: stackTrace)
-  expectEqual(
-    !expectedEqualUnicodeScalars, lhsNSString != rhsNSString,
-    stackTrace: stackTrace)
-  checkHashable(
-    expectedEqualUnicodeScalars, lhsNSString, rhsNSString,
-    stackTrace: stackTrace.withCurrentLoc())
-}
-
-NSStringAPIs.test("String.{Equatable,Hashable,Comparable}") {
-  for test in comparisonTests {
-    checkStringComparison(
-      test.expectedUnicodeCollation, test.lhs, test.rhs,
-      test.loc.withCurrentLoc())
-    checkStringComparison(
-      test.expectedUnicodeCollation.flip(), test.rhs, test.lhs,
-      test.loc.withCurrentLoc())
-  }
-}
-
-func checkCharacterComparison(
-  expected: ExpectedComparisonResult,
-  _ lhs: Character, _ rhs: Character, _ stackTrace: SourceLocStack
-) {
-  // Character / Character
-  expectEqual(expected.isEQ(), lhs == rhs, stackTrace: stackTrace)
-  expectEqual(expected.isNE(), lhs != rhs, stackTrace: stackTrace)
-  checkHashable(
-    expected.isEQ(), lhs, rhs, stackTrace: stackTrace.withCurrentLoc())
-
-  expectEqual(expected.isLT(), lhs < rhs, stackTrace: stackTrace)
-  expectEqual(expected.isLE(), lhs <= rhs, stackTrace: stackTrace)
-  expectEqual(expected.isGE(), lhs >= rhs, stackTrace: stackTrace)
-  expectEqual(expected.isGT(), lhs > rhs, stackTrace: stackTrace)
-  checkComparable(expected, lhs, rhs, stackTrace: stackTrace.withCurrentLoc())
-}
-
-NSStringAPIs.test("Character.{Equatable,Hashable,Comparable}") {
-  for test in comparisonTests {
-    if test.lhs.characters.count == 1 && test.rhs.characters.count == 1 {
-      let lhsCharacter = Character(test.lhs)
-      let rhsCharacter = Character(test.rhs)
-      checkCharacterComparison(
-        test.expectedUnicodeCollation, lhsCharacter, rhsCharacter,
-        test.loc.withCurrentLoc())
-      checkCharacterComparison(
-        test.expectedUnicodeCollation.flip(), rhsCharacter, lhsCharacter,
-        test.loc.withCurrentLoc())
-    }
-  }
-}
-
-func checkHasPrefixHasSuffix(
-  lhs: String, _ rhs: String, _ stackTrace: SourceLocStack
-) {
-  if lhs == "" {
-    return
-  }
-  if rhs == "" {
-    expectFalse(lhs.hasPrefix(rhs), stackTrace: stackTrace)
-    expectFalse(lhs.hasSuffix(rhs), stackTrace: stackTrace)
-    return
-  }
-
-  // To determine the expected results, compare grapheme clusters,
-  // scalar-to-scalar, of the NFD form of the strings.
-  let lhsNFDGraphemeClusters =
-    lhs.decomposedStringWithCanonicalMapping.characters.map {
-      Array(String($0).unicodeScalars)
-    }
-  let rhsNFDGraphemeClusters =
-    rhs.decomposedStringWithCanonicalMapping.characters.map {
-      Array(String($0).unicodeScalars)
-    }
-  let expectHasPrefix = lhsNFDGraphemeClusters.startsWith(
-    rhsNFDGraphemeClusters, isEquivalent: (==))
-  let expectHasSuffix =
-    lhsNFDGraphemeClusters.lazy.reverse().startsWith(
-      rhsNFDGraphemeClusters.lazy.reverse(), isEquivalent: (==))
-
-  expectEqual(expectHasPrefix, lhs.hasPrefix(rhs), stackTrace: stackTrace)
-  expectEqual(
-    expectHasPrefix, (lhs + "abc").hasPrefix(rhs), stackTrace: stackTrace)
-  expectEqual(expectHasSuffix, lhs.hasSuffix(rhs), stackTrace: stackTrace)
-  expectEqual(
-    expectHasSuffix, ("abc" + lhs).hasSuffix(rhs), stackTrace: stackTrace)
-}
-
-NSStringAPIs.test("hasPrefix,hasSuffix") {
-  for test in comparisonTests {
-    checkHasPrefixHasSuffix(test.lhs, test.rhs, test.loc.withCurrentLoc())
-    checkHasPrefixHasSuffix(test.rhs, test.lhs, test.loc.withCurrentLoc())
-  }
-}
-
-NSStringAPIs.test("Failures{hasPrefix,hasSuffix}-CF")
-  .xfail(.Custom({ true }, reason: "rdar://problem/19034601")).code {
-  let test = ComparisonTest(.LT, "\u{0}", "\u{0}\u{0}")
-  checkHasPrefixHasSuffix(test.lhs, test.rhs, test.loc.withCurrentLoc())
-}
-
-NSStringAPIs.test("Failures{hasPrefix,hasSuffix}")
-  .xfail(.Custom({ true }, reason: "blocked on rdar://problem/19036555")).code {
-  let tests =
-    [ComparisonTest(.LT, "\r\n", "t"), ComparisonTest(.GT, "\r\n", "\n")]
-  tests.forEach {
-    checkHasPrefixHasSuffix($0.lhs, $0.rhs, $0.loc.withCurrentLoc())
   }
 }
 
@@ -2135,110 +1901,6 @@ NSStringAPIs.test("copy construction") {
   expectEqual(expected, x as String)
   let y = NSMutableString(string: expected as NSString)
   expectEqual(expected, y as String)
-}
-
-var CStringTests = TestSuite("CStringTests")
-
-func getNullCString() -> UnsafeMutablePointer<CChar> {
-  return nil
-}
-
-func getASCIICString() -> (UnsafeMutablePointer<CChar>, dealloc: ()->()) {
-  let up = UnsafeMutablePointer<CChar>.alloc(100)
-  up[0] = 0x61
-  up[1] = 0x62
-  up[2] = 0
-  return (up, { up.dealloc(100) })
-}
-
-func getNonASCIICString() -> (UnsafeMutablePointer<CChar>, dealloc: ()->()) {
-  let up = UnsafeMutablePointer<UInt8>.alloc(100)
-  up[0] = 0xd0
-  up[1] = 0xb0
-  up[2] = 0xd0
-  up[3] = 0xb1
-  up[4] = 0
-  return (UnsafeMutablePointer(up), { up.dealloc(100) })
-}
-
-func getIllFormedUTF8String1(
-) -> (UnsafeMutablePointer<CChar>, dealloc: ()->()) {
-  let up = UnsafeMutablePointer<UInt8>.alloc(100)
-  up[0] = 0x41
-  up[1] = 0xed
-  up[2] = 0xa0
-  up[3] = 0x80
-  up[4] = 0x41
-  up[5] = 0
-  return (UnsafeMutablePointer(up), { up.dealloc(100) })
-}
-
-func getIllFormedUTF8String2(
-) -> (UnsafeMutablePointer<CChar>, dealloc: ()->()) {
-  let up = UnsafeMutablePointer<UInt8>.alloc(100)
-  up[0] = 0x41
-  up[1] = 0xed
-  up[2] = 0xa0
-  up[3] = 0x81
-  up[4] = 0x41
-  up[5] = 0
-  return (UnsafeMutablePointer(up), { up.dealloc(100) })
-}
-
-func asCCharArray(a: [UInt8]) -> [CChar] {
-  return a.map { CChar(bitPattern: $0) }
-}
-
-CStringTests.test("String.fromCString") {
-  if true {
-    let s = getNullCString()
-    expectEmpty(String.fromCString(s))
-  }
-  if true {
-    let (s, dealloc) = getASCIICString()
-    expectOptionalEqual("ab", String.fromCString(s))
-    dealloc()
-  }
-  if true {
-    let (s, dealloc) = getNonASCIICString()
-    expectOptionalEqual("аб", String.fromCString(s))
-    dealloc()
-  }
-  if true {
-    let (s, dealloc) = getIllFormedUTF8String1()
-    expectEmpty(String.fromCString(s))
-    dealloc()
-  }
-}
-
-CStringTests.test("String.fromCStringRepairingIllFormedUTF8") {
-  if true {
-    let s = getNullCString()
-    let (result, hadError) = String.fromCStringRepairingIllFormedUTF8(s)
-    expectEmpty(result)
-    expectFalse(hadError)
-  }
-  if true {
-    let (s, dealloc) = getASCIICString()
-    let (result, hadError) = String.fromCStringRepairingIllFormedUTF8(s)
-    expectOptionalEqual("ab", result)
-    expectFalse(hadError)
-    dealloc()
-  }
-  if true {
-    let (s, dealloc) = getNonASCIICString()
-    let (result, hadError) = String.fromCStringRepairingIllFormedUTF8(s)
-    expectOptionalEqual("аб", result)
-    expectFalse(hadError)
-    dealloc()
-  }
-  if true {
-    let (s, dealloc) = getIllFormedUTF8String1()
-    let (result, hadError) = String.fromCStringRepairingIllFormedUTF8(s)
-    expectOptionalEqual("\u{41}\u{fffd}\u{fffd}\u{fffd}\u{41}", result)
-    expectTrue(hadError)
-    dealloc()
-  }
 }
 
 runAllTests()

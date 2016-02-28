@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -19,11 +19,14 @@
 //    contiguous sequence of `Element`s.
 //
 //  - `Array<Element>` is like `ContiguousArray<Element>` when `Element` is not
-//    an reference type or an Objective-C existential.  Otherwise, it may use
+//    a reference type or an Objective-C existential.  Otherwise, it may use
 //    an `NSArray` bridged from Cocoa for storage.
 //
 //===----------------------------------------------------------------------===//
 
+/// This type is used as a result of the _checkSubscript call to associate the
+/// call with the array access call it guards.
+public struct _DependenceToken {}
 
 %{
   arrayTypes = [
@@ -119,7 +122,7 @@ if True:
 /// property, these array types have a `capacity` that reflects their
 /// potential to store elements without reallocation, and when you
 /// know how many elements you'll store, you can call
-/// `reserveCapacity` to pre-emptively reallocate and prevent
+/// `reserveCapacity` to preemptively reallocate and prevent
 /// intermediate reallocations.
 ///
 /// Objective-C Bridge
@@ -140,7 +143,7 @@ if True:
 /// sequence of mutating operations causes elements to be copied into
 /// unique, contiguous storage which may cost `O(N)` time and space,
 /// where `N` is the length of the array (or more, if the underlying
-/// `NSArray` is has unusual performance characteristics).
+/// `NSArray` has unusual performance characteristics).
 ///
 /// Bridging to Objective-C
 /// -----------------------
@@ -162,7 +165,7 @@ if True:
 /// first element access.'''
 # FIXME: Write about Array up/down-casting.
     else:
-      raise AssertionError('Unhandled case: ' + Self)
+      raise ValueError('Unhandled case: ' + Self)
 }%
 
 ${SelfDocComment}
@@ -207,7 +210,6 @@ public struct ${Self}<Element>
   /// Access the `index`th element. Reading is O(1).  Writing is
   /// ${O1}.
   public subscript(index: Int) -> Element {
-%if Self == 'Array':
     get {
       // This call may be hoisted or eliminated by the optimizer.  If
       // there is an inout violation, this value may be stale so needs to be 
@@ -216,25 +218,13 @@ public struct ${Self}<Element>
       
       // Make sure the index is in range and wasNativeTypeChecked is
       // still valid.
-      _checkSubscript(index, wasNativeTypeChecked: wasNativeTypeChecked)
+      let token = _checkSubscript(
+        index, wasNativeTypeChecked: wasNativeTypeChecked)
 
-      return _getElement(index, wasNativeTypeChecked: wasNativeTypeChecked)
+      return _getElement(
+        index, wasNativeTypeChecked: wasNativeTypeChecked,
+        matchingSubscriptCheck: token)
     }
-%elif Self == 'ContiguousArray':
-    addressWithNativeOwner {
-      _checkSubscript_native(index)
-      return (
-        UnsafePointer(_buffer.subscriptBaseAddress + index),
-        Builtin.castToNativeObject(_buffer.owner))
-    }
-%else:
-    addressWithOwner {
-      _checkSubscript_native(index)
-      return (
-        UnsafePointer(_buffer.subscriptBaseAddress + index),
-        Builtin.castToUnknownObject(_buffer.owner))
-    }
-%end
     mutableAddressWithPinnedNativeOwner {
       _makeMutableAndUniqueOrPinned() // makes the array native, too
       _checkSubscript_native(index)   
@@ -245,14 +235,22 @@ public struct ${Self}<Element>
   /// Access the `index`th element. Reading is O(1).  Writing is
   /// ${O1}.
   public subscript(index: Int) -> Element {
-    
-    addressWithNativeOwner {
-      _checkSubscript_native(index)
-      return (
-        UnsafePointer(_buffer.subscriptBaseAddress + index),
-        Builtin.castToNativeObject(_buffer.owner))
+    get {
+      // This call may be hoisted or eliminated by the optimizer.  If
+      // there is an inout violation, this value may be stale so needs to be
+      // checked again below.
+      let wasNativeTypeChecked = _hoistableIsNativeTypeChecked()
+
+      // Make sure the index is in range and wasNativeTypeChecked is
+      // still valid.
+      let token = _checkSubscript(
+        index, wasNativeTypeChecked: wasNativeTypeChecked)
+
+      return _getElement(
+        index, wasNativeTypeChecked: wasNativeTypeChecked,
+        matchingSubscriptCheck: token)
     }
-    
+
     mutableAddressWithPinnedNativeOwner {
       _makeMutableAndUniqueOrPinned()
       _checkSubscript_native(index)
@@ -283,14 +281,7 @@ public struct ${Self}<Element>
 
   //===--- private --------------------------------------------------------===//
 
-  @warn_unused_result
-  @_semantics("array.props.isNative")
-  public // @testable
-  func _getArrayPropertyIsNative() -> Bool {
-   return _buffer.arrayPropertyIsNative
-  }
-
-  /// Returns true if the array is native and does not need a deferred
+  /// Returns `true` if the array is native and does not need a deferred
   /// type check.  May be hoisted by the optimizer, which means its
   /// results may be stale by the time they are used if there is an
   /// inout violation in user code.
@@ -337,10 +328,7 @@ public struct ${Self}<Element>
     return Builtin.castToNativeObject(_buffer.owner)
   }
   
-  // Don't inline copyBuffer - this would inline the copy loop into the current
-  // path preventing retains/releases to be matched accross that region.
-  @inline(never)
-  static internal func _copyBuffer(inout buffer: _Buffer) {
+  static internal func _copyBuffer(buffer: inout _Buffer) {
     let newBuffer = _ContiguousArrayBuffer<Element>(
       count: buffer.count, minimumCapacity: buffer.count)
     buffer._uninitializedCopy(
@@ -374,20 +362,25 @@ public struct ${Self}<Element>
 % end
   }
 
-% if Self == 'Array':
   /// Check that the given `index` is valid for subscripting, i.e. `0
   /// ≤ index < count`.
   @_semantics("array.check_subscript")
   public // @testable
-  func _checkSubscript(index: Int, wasNativeTypeChecked: Bool) {
+  func _checkSubscript(
+    index: Int, wasNativeTypeChecked: Bool
+  ) -> _DependenceToken {
 #if _runtime(_ObjC)
+% if Self == 'Array':
     _buffer._checkInoutAndNativeTypeCheckedBounds(
       index, wasNativeTypeChecked: wasNativeTypeChecked)
+% else:
+    _buffer._checkValidSubscript(index)
+% end
 #else
     _buffer._checkValidSubscript(index)
 #endif
+    return _DependenceToken()
   }
-% end
 
   /// Check that the given `index` is valid, i.e. `0 ≤ index ≤ count`.
   @_semantics("array.check_index")
@@ -400,7 +393,11 @@ public struct ${Self}<Element>
   @_semantics("array.get_element")
   @inline(__always)
   public // @testable
-  func _getElement(index: Int, wasNativeTypeChecked : Bool) -> Element {
+  func _getElement(
+    index: Int,
+    wasNativeTypeChecked : Bool,
+    matchingSubscriptCheck: _DependenceToken
+  ) -> Element {
 #if ${'_runtime(_ObjC)' if Self == 'Array' else 'false'}
     return _buffer.getElement(index, wasNativeTypeChecked: wasNativeTypeChecked)
 #else
@@ -465,7 +462,7 @@ public func _allocateUninitializedArray<Element>(_count: Builtin.Word)
     -> (Array<Element>, Builtin.RawPointer) {
   let count = Int(_count)
   if count > 0 {
-    // Doing the actual buffer alloction outside of the array.uninitialized
+    // Doing the actual buffer allocation outside of the array.uninitialized
     // semantics function enables stack propagation of the buffer.
     let bufferObject = ManagedBufferPointer<_ArrayBody, Element>(
       _uncheckedBufferClass: _ContiguousArrayStorage<Element>.self,
@@ -513,7 +510,8 @@ extension ${Self} : _ArrayType {
     var p: UnsafeMutablePointer<Element>
     (self, p) = ${Self}._allocateUninitialized(count)
     for _ in 0..<count {
-      p++.initialize(repeatedValue)
+      p.initialize(repeatedValue)
+      p += 1
     }
   }
 
@@ -532,7 +530,7 @@ extension ${Self} : _ArrayType {
     _buffer = _Buffer()
     if count > 0 {
       // Creating a buffer instead of calling reserveCapacity saves doing an
-      // unneccessary uniqueness check. We disable inlining here to curb code
+      // unnecessary uniqueness check. We disable inlining here to curb code
       // growth.
       _buffer = ${Self}._allocateBufferUninitialized(count)
     }
@@ -618,7 +616,7 @@ extension ${Self} : _ArrayType {
   /// - Postcondition: `capacity >= minimumCapacity` and the array has
   ///   mutable contiguous storage.
   ///
-  /// - Complexity: O(`count`).
+  /// - Complexity: O(`self.count`).
   @_semantics("array.mutate_unknown")
   public mutating func reserveCapacity(minimumCapacity: Int) {
     if _buffer.requestUniqueMutableBackingBuffer(minimumCapacity) == nil {
@@ -722,7 +720,7 @@ extension ${Self} : _ArrayType {
   ///
   /// - Requires: `i <= count`.
   ///
-  /// - Complexity: O(`count`).
+  /// - Complexity: O(`self.count`).
   public mutating func insert(newElement: Element, atIndex i: Int) {
     _checkIndex(i)
     self.replaceRange(i..<i, with: CollectionOfOne(newElement))
@@ -732,7 +730,7 @@ extension ${Self} : _ArrayType {
   ///
   /// Invalidates all indices with respect to `self`.
   ///
-  /// - Complexity: O(`count`).
+  /// - Complexity: O(`self.count`).
   public mutating func removeAtIndex(index: Int) -> Element {
     let result = self[index]
     self.replaceRange(index..<(index + 1), with: EmptyCollection())
@@ -782,11 +780,11 @@ extension ${Self} : _ArrayType {
   }
 }
 
-extension ${Self} : _Reflectable {
+extension ${Self} : CustomReflectable {
   /// Returns a mirror that reflects `self`.
   @warn_unused_result
-  public func _getMirror() -> _MirrorType {
-    return _ArrayTypeMirror(self)
+  public func customMirror() -> Mirror {
+    return Mirror(self, unlabeledChildren: self, displayStyle: .Collection)
   }
 }
 
@@ -908,7 +906,9 @@ internal struct _InitializeMemoryFromCollection<
     var p = rawMemory
     var q = newValues.startIndex
     for _ in 0..<count {
-      p++.initialize(newValues[q++])
+      p.initialize(newValues[q])
+      q = q.successor()
+      p += 1
     }
     _expectEnd(q, newValues)
   }
@@ -926,7 +926,7 @@ internal func _arrayOutOfPlaceReplace<
     where C.Generator.Element == B.Element,
     B.Index == Int
 >(
-  inout source: B, _ subRange: Range<Int>, _ newValues: C, _ insertCount: Int
+  source: inout B, _ subRange: Range<Int>, _ newValues: C, _ insertCount: Int
 ) {
   let growth = insertCount - subRange.count
   let newCount = source.count + growth
@@ -991,7 +991,7 @@ extension ${Self} {
 public func += <
   Element, S : SequenceType
   where S.Generator.Element == Element
->(inout lhs: ${Self}<Element>, rhs: S) {
+>(lhs: inout ${Self}<Element>, rhs: S) {
   let oldCount = lhs.count
   let capacity = lhs.capacity
   let newCount = oldCount + rhs.underestimateCount()
@@ -1007,7 +1007,7 @@ public func += <
 public func += <
   Element, C : CollectionType
   where C.Generator.Element == Element
->(inout lhs: ${Self}<Element>, rhs: C) {
+>(lhs: inout ${Self}<Element>, rhs: C) {
   let rhsCount = numericCast(rhs.count) as Int
 
   let oldCount = lhs.count
@@ -1031,12 +1031,12 @@ public func += <
 /// Create a unique mutable buffer that has enough capacity to hold 'newCount'
 /// elements and at least 'requiredCapacity' elements. Set the count of the new
 /// buffer to 'newCount'. The content of the buffer is uninitialized.
-/// The forumula used to compute the new buffers capacity is:
+/// The formula used to compute the new buffers capacity is:
 ///   max(requiredCapacity, source.capacity)  if newCount <= source.capacity
 ///   max(requiredCapacity, _growArrayCapacity(source.capacity)) otherwise
 @inline(never)
 internal func _forceCreateUniqueMutableBuffer<_Buffer : _ArrayBufferType>(
-  inout source: _Buffer, newCount: Int, requiredCapacity: Int
+  source: inout _Buffer, newCount: Int, requiredCapacity: Int
 ) -> _ContiguousArrayBuffer<_Buffer.Element> {
   return _forceCreateUniqueMutableBufferImpl(
     &source, countForBuffer: newCount, minNewCapacity: newCount,
@@ -1046,13 +1046,13 @@ internal func _forceCreateUniqueMutableBuffer<_Buffer : _ArrayBufferType>(
 /// Create a unique mutable buffer that has enough capacity to hold
 /// 'minNewCapacity' elements and set the count of the new buffer to
 /// 'countForNewBuffer'. The content of the buffer uninitialized.
-/// The forumula used to compute the new buffers capacity is:
+/// The formula used to compute the new buffers capacity is:
 ///   max(minNewCapacity, source.capacity) if minNewCapacity <= source.capacity
 ///   max(minNewCapacity, _growArrayCapacity(source.capacity)) otherwise
 @inline(never)
 internal
 func _forceCreateUniqueMutableBuffer<_Buffer : _ArrayBufferType>(
-  inout source: _Buffer,  countForNewBuffer: Int,  minNewCapacity: Int
+  source: inout _Buffer,  countForNewBuffer: Int,  minNewCapacity: Int
 ) -> _ContiguousArrayBuffer<_Buffer.Element> {
   return _forceCreateUniqueMutableBufferImpl(
     &source, countForBuffer: countForNewBuffer, minNewCapacity: minNewCapacity,
@@ -1067,7 +1067,7 @@ func _forceCreateUniqueMutableBuffer<_Buffer : _ArrayBufferType>(
 ///  max(requiredCapacity, source.capacity) if minNewCapacity <= source.capacity
 ///  max(requiredCapacity, _growArrayCapacity(source.capacity))  otherwise
 internal func _forceCreateUniqueMutableBufferImpl<_Buffer : _ArrayBufferType>(
-  inout source: _Buffer,  countForBuffer: Int, minNewCapacity: Int,
+  source: inout _Buffer,  countForBuffer: Int, minNewCapacity: Int,
   requiredCapacity: Int
 ) -> _ContiguousArrayBuffer<_Buffer.Element> {
   _sanityCheck(countForBuffer >= 0)
@@ -1083,7 +1083,7 @@ internal func _forceCreateUniqueMutableBufferImpl<_Buffer : _ArrayBufferType>(
 }
 
 internal protocol _PointerFunctionType {
-  typealias Element
+  associatedtype Element
   func call(_: UnsafeMutablePointer<Element>, count: Int)
 }
 
@@ -1100,8 +1100,8 @@ internal func _arrayOutOfPlaceUpdate<
   where Initializer.Element == _Buffer.Element,
   _Buffer.Index == Int
 >(
-  inout source: _Buffer,
-  inout _ dest: _ContiguousArrayBuffer<_Buffer.Element>?,
+  source: inout _Buffer,
+  _ dest: inout _ContiguousArrayBuffer<_Buffer.Element>?,
   _ headCount: Int, // Count of initial source elements to copy/move
   _ newCount: Int,  // Count of new elements to insert
   _ initializeNewElements: Initializer
@@ -1185,7 +1185,7 @@ internal struct _IgnorePointer<T> : _PointerFunctionType {
 internal func _arrayReserve<
   _Buffer : _ArrayBufferType where _Buffer.Index == Int
 >(
-  inout buffer: _Buffer, _ minimumCapacity: Int
+  buffer: inout _Buffer, _ minimumCapacity: Int
 ) {
   let count = buffer.count
   let requiredCapacity = max(count, minimumCapacity)
@@ -1221,7 +1221,7 @@ internal func _arrayAppendSequence<
   S : SequenceType where S.Generator.Element == Buffer.Element,
   Buffer.Index == Int
 >(
-  inout buffer: Buffer, _ newItems: S
+  buffer: inout Buffer, _ newItems: S
 ) {
   var stream = newItems.generate()
   var nextItem = stream.next()
@@ -1238,7 +1238,8 @@ internal func _arrayAppendSequence<
     let base = buffer.firstElementAddress
 
     while (nextItem != nil) && count < capacity {
-      (base + count++).initialize(nextItem!)
+      (base + count).initialize(nextItem!)
+      count += 1
       nextItem = stream.next()
     }
     buffer.count = count
@@ -1254,7 +1255,7 @@ internal func _arrayAppendSequence<
 // that are the same, e.g. Array<Int> and Array<Int>, not
 // ArraySlice<Int> and Array<Int>.
 
-/// Returns true if these arrays contain the same elements.
+/// Returns `true` if these arrays contain the same elements.
 @warn_unused_result
 public func == <Element : Equatable>(
   lhs: ${Self}<Element>, rhs: ${Self}<Element>
@@ -1269,6 +1270,8 @@ public func == <Element : Equatable>(
     return true
   }
 
+%if Self == 'ArraySlice':
+
   var streamLHS = lhs.generate()
   var streamRHS = rhs.generate()
 
@@ -1281,10 +1284,23 @@ public func == <Element : Equatable>(
     nextLHS = streamLHS.next()
   }
 
+%else:
+
+  _sanityCheck(lhs.startIndex == 0 && rhs.startIndex == 0)
+  _sanityCheck(lhs.endIndex == lhsCount && rhs.endIndex == lhsCount)
+
+  // We know that lhs.count == rhs.count, compare element wise.
+  for idx in 0..<lhsCount {
+    if lhs[idx] != rhs[idx] {
+      return false
+    }
+  }
+%end
+
   return true
 }
 
-/// Returns true if the arrays do not contain the same elements.
+/// Returns `true` if the arrays do not contain the same elements.
 @warn_unused_result
 public func != <Element : Equatable>(
   lhs: ${Self}<Element>, rhs: ${Self}<Element>
@@ -1309,9 +1325,9 @@ public func _arrayUpCast<Derived, Base>(a: Array<Derived>) -> Array<Base> {
 
 #if _runtime(_ObjC)
 extension Array {
-  /// Try to downcast the source `NSArray` as our native buffer type.
-  /// If it succeeds, create a new `Array` around it and return that.
-  /// Return `nil` otherwise.
+  /// Tries to downcast the source `NSArray` as our native buffer type.
+  /// If it succeeds, creates a new `Array` around it and returns that.
+  /// Returns `nil` otherwise.
   // Note: this function exists here so that Foundation doesn't have
   // to know Array's implementation details.
   @warn_unused_result

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -25,10 +25,11 @@
 #include "swift/AST/Stmt.h"
 #include "swift/AST/Types.h"
 #include "swift/Parse/Lexer.h"
-#include "swift/Sema/CodeCompletionTypeChecking.h"
+#include "swift/Sema/IDETypeChecking.h"
 #include "swift/Subsystems.h"
 #include "TypeChecker.h"
 
+#include <cstdio>
 #include <forward_list>
 #include <random>
 
@@ -59,7 +60,7 @@ private:
   std::mt19937_64 &RNG;
   ASTContext &Context;
   DeclContext *TypeCheckDC;
-  unsigned TmpNameIndex = 0;
+  unsigned &TmpNameIndex;
   bool HighPerformance;
 
   struct BracePair {
@@ -170,10 +171,11 @@ private:
   ClosureFinder CF;
 
 public:
-  Instrumenter (ASTContext &C, DeclContext *DC, std::mt19937_64 &RNG,
-                bool HP) :
-    RNG(RNG), Context(C), TypeCheckDC(DC), HighPerformance(HP), CF(*this) { }
-    
+  Instrumenter(ASTContext &C, DeclContext *DC, std::mt19937_64 &RNG, bool HP,
+               unsigned &TmpNameIndex)
+      : RNG(RNG), Context(C), TypeCheckDC(DC), TmpNameIndex(TmpNameIndex),
+        HighPerformance(HP), CF(*this) {}
+
   Stmt *transformStmt(Stmt *S) { 
     switch (S->getKind()) {
     default:
@@ -354,7 +356,7 @@ public:
       ValueDecl *D = cast<DeclRefExpr>(E)->getDecl();
       Added<Expr *> DRE = 
         new (Context) DeclRefExpr(ConcreteDeclRef(D),
-                                  cast<DeclRefExpr>(E)->getLoc(),
+                                  cast<DeclRefExpr>(E)->getNameLoc(),
                                   true, // implicit
                                   AccessSemantics::Ordinary,
                                   cast<DeclRefExpr>(E)->getType());
@@ -370,7 +372,7 @@ public:
         new (Context) MemberRefExpr(*BaseVariable.first,
                                     cast<MemberRefExpr>(E)->getDotLoc(),
                                     ConcreteDeclRef(M),
-                                    cast<MemberRefExpr>(E)->getSourceRange(),
+                                    cast<MemberRefExpr>(E)->getNameLoc(),
                                     true, // implicit
                                     AccessSemantics::Ordinary));
       return std::make_pair(MRE, M);
@@ -530,7 +532,7 @@ public:
               buildPatternAndVariable(AE->getSrc());
             DeclRefExpr *DRE =
               new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                        SourceLoc(),
+                                        DeclNameLoc(),
                                         true, // implicit
                                         AccessSemantics::Ordinary,
                                         AE->getSrc()->getType());
@@ -544,7 +546,7 @@ public:
             
             Added<Stmt *> Log(buildLoggerCall(
               new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                        SourceLoc(),
+                                        DeclNameLoc(),
                                         true, // implicit
                                         AccessSemantics::Ordinary,
                                         AE->getSrc()->getType()),
@@ -625,7 +627,7 @@ public:
               buildPatternAndVariable(E);
             Added<Stmt *> Log = buildLoggerCall(
               new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                        SourceLoc(),
+                                        DeclNameLoc(),
                                         true, // implicit
                                         AccessSemantics::Ordinary,
                                         E->getType()),
@@ -637,15 +639,14 @@ public:
               EI += 2;
             }
           }
-        }
-        else {
+        } else {
           if (E->getType()->getCanonicalType() !=
               Context.TheEmptyTupleType) {
             std::pair<PatternBindingDecl *, VarDecl *> PV =
               buildPatternAndVariable(E);
             Added<Stmt *> Log = buildLoggerCall(
               new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                        SourceLoc(),
+                                        DeclNameLoc(),
                                         true, // implicit
                                         AccessSemantics::Ordinary,
                                         E->getType()),
@@ -666,7 +667,7 @@ public:
               buildPatternAndVariable(RS->getResult());
             DeclRefExpr *DRE =
               new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                        SourceLoc(),
+                                        DeclNameLoc(),
                                         true, // implicit
                                         AccessSemantics::Ordinary,
                                         RS->getResult()->getType());
@@ -675,7 +676,7 @@ public:
                                                        true); // implicit
             Added<Stmt *> Log = buildLoggerCall(
               new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                        SourceLoc(),
+                                        DeclNameLoc(),
                                         true, // implicit
                                         AccessSemantics::Ordinary,
                                         RS->getResult()->getType()),
@@ -750,7 +751,7 @@ public:
 
     return buildLoggerCall(
       new (Context) DeclRefExpr(ConcreteDeclRef(VD),
-                                SourceLoc(),
+                                DeclNameLoc(),
                                 true, // implicit
                                 AccessSemantics::Ordinary,
                                 Type()),
@@ -768,7 +769,7 @@ public:
   
       return buildLoggerCall(
         new (Context) DeclRefExpr(ConcreteDeclRef(VD),
-                                  SourceLoc(),
+                                  DeclNameLoc(),
                                   true, // implicit
                                   AccessSemantics::Ordinary,
                                   Type()),
@@ -787,7 +788,7 @@ public:
         new (Context) MemberRefExpr(B,
                                     SourceLoc(),
                                     M,
-                                    SourceRange(),
+                                    DeclNameLoc(),
                                     true, // implicit
                                     AccessSemantics::Ordinary),
         MRE->getSourceRange(), M.getDecl()->getName().str().str().c_str());
@@ -803,7 +804,7 @@ public:
       std::pair<PatternBindingDecl*, VarDecl*> PV =
         buildPatternAndVariable(PE->getSubExpr());
       PE->setSubExpr(new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                               SourceLoc(),
+                                               DeclNameLoc(),
                                                true, // implicit
                                                AccessSemantics::Ordinary,
                                                PE->getSubExpr()->getType()));
@@ -832,7 +833,7 @@ public:
           TE->setElement(0,
                          new (Context) DeclRefExpr(
                            ConcreteDeclRef(PV.second),
-                           SourceLoc(),
+                           DeclNameLoc(),
                            true, // implicit
                            AccessSemantics::Ordinary,
                            TE->getElement(0)->getType()));
@@ -842,7 +843,7 @@ public:
             buildPatternAndVariable(TE);
           Print->setArg(new (Context) DeclRefExpr(
                           ConcreteDeclRef(PV.second),
-                          SourceLoc(),
+                          DeclNameLoc(),
                           true, // implicit
                           AccessSemantics::Ordinary,
                           TE->getType()));
@@ -864,7 +865,7 @@ public:
       new (Context) UnresolvedDeclRefExpr(
         Context.getIdentifier(LoggerName),
         DeclRefKind::Ordinary,
-        AE->getSourceRange().End);
+        DeclNameLoc(AE->getSourceRange().End));
 
     std::tie(ArgPattern, ArgVariable) =
       maybeFixupPrintArgument(AE);
@@ -897,8 +898,7 @@ public:
           dyn_cast<LValueType>(InitExpr->getType().getPointer())) {
       MaybeLoadInitExpr = new (Context) LoadExpr (InitExpr,
                                                   LVT->getObjectType());
-    }
-    else {
+    } else {
       MaybeLoadInitExpr = InitExpr;
     }
 
@@ -932,8 +932,8 @@ public:
 
     const size_t buf_size = 11;
     char * const id_buf = (char*)Context.Allocate(buf_size, 1);
-    std::uniform_int_distribution<unsigned int> Distribution(0, 0x7fffffffu);
-    const unsigned int id_num = Distribution(RNG);
+    std::uniform_int_distribution<unsigned> Distribution(0, 0x7fffffffu);
+    const unsigned id_num = Distribution(RNG);
     ::snprintf(id_buf, buf_size, "%u", id_num);
     Expr *IDExpr = new (Context) IntegerLiteralExpr(id_buf, 
                                                     SourceLoc(), true);
@@ -984,7 +984,7 @@ public:
       new (Context) UnresolvedDeclRefExpr(
         Context.getIdentifier(LoggerName),
         DeclRefKind::Ordinary,
-        SR.End);
+        DeclNameLoc(SR.End));
 
     LoggerRef->setImplicit(true);
 
@@ -1034,7 +1034,7 @@ public:
       buildPatternAndVariable(*Apply);
 
     DeclRefExpr *DRE = new (Context) DeclRefExpr(ConcreteDeclRef(PV.second),
-                                                 SourceLoc(),
+                                                 DeclNameLoc(),
                                                  true, // implicit
                                                  AccessSemantics::Ordinary,
                                                  Apply->getType());
@@ -1053,7 +1053,7 @@ public:
       new (Context) UnresolvedDeclRefExpr(
         Context.getIdentifier("$builtin_send_data"),
         DeclRefKind::Ordinary,
-        SourceLoc());
+        DeclNameLoc());
 
     SendDataRef->setImplicit(true);
 
@@ -1087,15 +1087,16 @@ void swift::performPlaygroundTransform(SourceFile &SF,
   private:
     std::mt19937_64 RNG;
     bool HighPerformance;
+    unsigned TmpNameIndex = 0;
   public:
-    ExpressionFinder(bool HP) : HighPerformance(HP) { }
+    ExpressionFinder(bool HP) : HighPerformance(HP) {}
 
     virtual bool walkToDeclPre(Decl *D) {
       if (AbstractFunctionDecl *FD = dyn_cast<AbstractFunctionDecl>(D)) {
         if (!FD->isImplicit()) {
           if (BraceStmt *Body = FD->getBody()) {
             ASTContext &ctx = FD->getASTContext();
-            Instrumenter I(ctx, FD, RNG, HighPerformance);
+            Instrumenter I(ctx, FD, RNG, HighPerformance, TmpNameIndex);
             BraceStmt *NewBody = I.transformBraceStmt(Body);
             if (NewBody != Body) {
               FD->setBody(NewBody);
@@ -1108,7 +1109,7 @@ void swift::performPlaygroundTransform(SourceFile &SF,
         if (!TLCD->isImplicit()) {
           if (BraceStmt *Body = TLCD->getBody()) {
             ASTContext &ctx = static_cast<Decl*>(TLCD)->getASTContext();
-            Instrumenter I(ctx, TLCD, RNG, HighPerformance);
+            Instrumenter I(ctx, TLCD, RNG, HighPerformance, TmpNameIndex);
             BraceStmt *NewBody = I.transformBraceStmt(Body, true);
             if (NewBody != Body) {
               TLCD->setBody(NewBody);

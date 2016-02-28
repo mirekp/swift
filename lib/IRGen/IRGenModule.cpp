@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -38,6 +38,7 @@
 #include "llvm/IR/Type.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MD5.h"
 
 #include "GenEnum.h"
 #include "GenType.h"
@@ -96,7 +97,7 @@ static clang::CodeGenerator *createClangCodeGenerator(ASTContext &Context,
   }
   if (Opts.DebugInfoKind != IRGenDebugInfoKind::None) {
     CGO.DebugCompilationDir = Opts.DebugCompilationDir;
-    CGO.DwarfVersion = swift::DWARFVersion;
+    CGO.DwarfVersion = Opts.DWARFVersion;
     CGO.DwarfDebugFlags = Opts.DWARFDebugFlags;
   }
 
@@ -127,10 +128,20 @@ IRGenModule::IRGenModule(IRGenModuleDispatcher &dispatcher, SourceFile *SF,
     Triple(Triple), TargetMachine(TargetMachine),
     SILMod(SILMod), OutputFilename(OutputFilename), dispatcher(dispatcher),
     TargetInfo(SwiftTargetInfo::get(*this)),
-    DebugInfo(0), ObjCInterop(Context.LangOpts.EnableObjCInterop),
+    DebugInfo(0), ModuleHash(nullptr),
+    ObjCInterop(Context.LangOpts.EnableObjCInterop),
     Types(*new TypeConverter(*this))
 {
   dispatcher.addGenModule(SF, this);
+
+  // If the command line contains an explicit request about whether to add
+  // LLVM value names, honor it.  Otherwise, add value names only if the
+  // final result is textual LLVM assembly.
+  if (Opts.HasValueNamesSetting) {
+    EnableValueNames = Opts.ValueNames;
+  } else {
+    EnableValueNames = (Opts.OutputKind == IRGenOutputKind::LLVMAssembly);
+  }
   
   VoidTy = llvm::Type::getVoidTy(getLLVMContext());
   Int1Ty = llvm::Type::getInt1Ty(getLLVMContext());
@@ -159,6 +170,10 @@ IRGenModule::IRGenModule(IRGenModuleDispatcher &dispatcher, SourceFile *SF,
   WeakReferencePtrTy =
     createStructPointerType(*this, "swift.weak", { RefCountedPtrTy });
 
+  // Native unowned references are just a pointer.
+  UnownedReferencePtrTy =
+    createStructPointerType(*this, "swift.unowned", { RefCountedPtrTy });
+
   // A type metadata record is the structure pointed to by the canonical
   // address point of a type metadata.  This is at least one word, and
   // potentially more than that, past the start of the actual global
@@ -181,7 +196,9 @@ IRGenModule::IRGenModule(IRGenModuleDispatcher &dispatcher, SourceFile *SF,
     Int8PtrTy,              // optional objc class methods
     Int8PtrTy,              // objc properties
     Int32Ty,                // size
-    Int32Ty                 // flags
+    Int32Ty,                // flags
+    Int16Ty,                // minimum witness count
+    Int16Ty                 // default witness count
   });
   
   ProtocolDescriptorPtrTy = ProtocolDescriptorStructTy->getPointerTo();
@@ -265,6 +282,23 @@ IRGenModule::IRGenModule(IRGenModuleDispatcher &dispatcher, SourceFile *SF,
   ProtocolConformanceRecordPtrTy
     = ProtocolConformanceRecordTy->getPointerTo(DefaultAS);
 
+  NominalTypeDescriptorTy
+    = llvm::StructType::create(LLVMContext, "swift.type_descriptor");
+  NominalTypeDescriptorPtrTy
+    = NominalTypeDescriptorTy->getPointerTo(DefaultAS);
+
+  TypeMetadataRecordTy
+    = createStructType(*this, "swift.type_metadata_record", {
+      RelativeAddressTy,
+      Int32Ty
+    });
+  TypeMetadataRecordPtrTy
+    = TypeMetadataRecordTy->getPointerTo(DefaultAS);
+
+  FieldDescriptorTy
+    = llvm::StructType::create(LLVMContext, "swift.field_descriptor");
+  FieldDescriptorPtrTy = FieldDescriptorTy->getPointerTo(DefaultAS);
+
   FixedBufferTy = nullptr;
   for (unsigned i = 0; i != MaxNumValueWitnesses; ++i)
     ValueWitnessTys[i] = nullptr;
@@ -343,6 +377,7 @@ IRGenModule::~IRGenModule() {
     delete DebugInfo;
   delete ABITypes;
 }
+
 static bool isReturnAttribute(llvm::Attribute::AttrKind Attr);
 
 // Explicitly listing these constants is an unfortunate compromise for
@@ -434,6 +469,34 @@ llvm::Constant *IRGenModule::get##ID##Fn() {               \
                       RETURNS, ARGS, ATTRS);               \
 }
 #include "RuntimeFunctions.def"
+
+std::pair<llvm::GlobalVariable *, llvm::Constant *>
+IRGenModule::createStringConstant(StringRef Str,
+  bool willBeRelativelyAddressed, StringRef sectionName) {
+  // If not, create it.  This implicitly adds a trailing null.
+  auto init = llvm::ConstantDataArray::getString(LLVMContext, Str);
+  auto global = new llvm::GlobalVariable(Module, init->getType(), true,
+                                         llvm::GlobalValue::PrivateLinkage,
+                                         init);
+  // FIXME: ld64 crashes resolving relative references to coalesceable symbols.
+  // rdar://problem/22674524
+  // If we intend to relatively address this string, don't mark it with
+  // unnamed_addr to prevent it from going into the cstrings section and getting
+  // coalesced.
+  if (!willBeRelativelyAddressed)
+    global->setUnnamedAddr(true);
+
+  if (!sectionName.empty())
+    global->setSection(sectionName);
+
+  // Drill down to make an i8*.
+  auto zero = llvm::ConstantInt::get(SizeTy, 0);
+  llvm::Constant *indices[] = { zero, zero };
+  auto address = llvm::ConstantExpr::getInBoundsGetElementPtr(
+    global->getValueType(), global, indices);
+
+  return { global, address };
+}
 
 llvm::Constant *IRGenModule::getEmptyTupleMetadata() {
   if (EmptyTupleMetadata)
@@ -621,19 +684,6 @@ void IRGenModule::addLinkLibrary(const LinkLibrary &linkLib) {
   }
 }
 
-// FIXME: This should just be the implementation of
-// llvm::array_pod_sort_comparator. The only difference is that it uses
-// std::less instead of operator<.
-template <typename T>
-static int pointerPODSortComparator(T * const *lhs, T * const *rhs) {
-  std::less<T *> lt;
-  if (lt(*lhs, *rhs))
-    return -1;
-  if (lt(*rhs, *lhs))
-    return -1;
-  return 0;
-}
-
 static bool replaceModuleFlagsEntry(llvm::LLVMContext &Ctx,
                                     llvm::Module &Module, StringRef EntryName,
                                     llvm::Module::ModFlagBehavior Behavior,
@@ -702,6 +752,7 @@ void IRGenModule::emitAutolinkInfo() {
     }
     break;
   }
+  case llvm::Triple::COFF:
   case llvm::Triple::ELF: {
     // Merge the entries into null-separated string.
     llvm::SmallString<64> EntriesString;
@@ -771,6 +822,35 @@ void IRGenModule::cleanupClangCodeGenMetadata() {
 }
 
 void IRGenModule::finalize() {
+  const char *ModuleHashVarName = "llvm.swift_module_hash";
+  if (Opts.OutputKind == IRGenOutputKind::ObjectFile &&
+      !Module.getGlobalVariable(ModuleHashVarName)) {
+    // Create a global variable into which we will store the hash of the
+    // module (used for incremental compilation).
+    // We have to create the variable now (before we emit the global lists).
+    // But we want to calculate the hash later because later we can do it
+    // multi-threaded.
+    llvm::MD5::MD5Result zero = { 0 };
+    ArrayRef<uint8_t> ZeroArr(zero, sizeof(llvm::MD5::MD5Result));
+    auto *ZeroConst = llvm::ConstantDataArray::get(Module.getContext(), ZeroArr);
+    ModuleHash = new llvm::GlobalVariable(Module, ZeroConst->getType(), true,
+                                          llvm::GlobalValue::PrivateLinkage,
+                                          ZeroConst, ModuleHashVarName);
+    switch (TargetInfo.OutputObjectFormat) {
+    case llvm::Triple::MachO:
+      // On Darwin the linker ignores the __LLVM segment.
+      ModuleHash->setSection("__LLVM,__swift_modhash");
+      break;
+    case llvm::Triple::ELF:
+    case llvm::Triple::COFF:
+      ModuleHash->setSection(".swift_modhash");
+      break;
+    default:
+      llvm_unreachable("Don't know how to emit the module hash for the selected"
+                       "object format.");
+    }
+    addUsedGlobal(ModuleHash);
+  }
   emitLazyPrivateDefinitions();
   emitAutolinkInfo();
   emitGlobalLists();
@@ -842,3 +922,4 @@ IRGenModule *IRGenModuleDispatcher::getGenModule(SILFunction *f) {
 
   return getPrimaryIGM();
 }
+

@@ -1,5 +1,5 @@
 // RUN: rm -rf %t  &&  mkdir %t
-// RUN: ulimit -c unlimited && %target-jit-run %s -I %S -enable-source-import | FileCheck %s
+// RUN: %target-jit-run %s -I %S -enable-source-import | FileCheck %s
 // REQUIRES: executable_test
 
 // REQUIRES: swift_interpreter
@@ -35,13 +35,13 @@ func getMandelbrotIterations(c: Complex, maxIterations: Int) -> Int {
   var z = Complex()
   while (n < maxIterations && z.magnitude() < 4.0) {
     z = z*z + c
-    ++n
+    n += 1
   }
   return n
 }
 
-func fractal (densityFunc:(c: Complex, maxIterations: Int) -> Int)
-             (xMin:Double, xMax:Double,
+func fractal (densityFunc:(c: Complex, maxIterations: Int) -> Int,
+              xMin:Double, xMax:Double,
               yMin:Double, yMax:Double,
               rows:Int, cols:Int,
               maxIterations:Int) {
@@ -59,9 +59,9 @@ func fractal (densityFunc:(c: Complex, maxIterations: Int) -> Int)
   }
 }
 
-var mandelbrot = fractal(getMandelbrotIterations)
-mandelbrot(xMin: -1.35, xMax: 1.4, yMin: -2.0, yMax: 1.05, rows: 40, cols: 80,
-           maxIterations: 200)
+fractal(getMandelbrotIterations,
+        xMin: -1.35, xMax: 1.4, yMin: -2.0, yMax: 1.05, rows: 40, cols: 80,
+        maxIterations: 200)
 
 // CHECK: ################################################################################
 // CHECK: ##############################********************##############################
@@ -111,16 +111,16 @@ func getBurningShipIterations(c: Complex, maxIterations: Int) -> Int {
   while (n < maxIterations && z.magnitude() < 4.0) {
     var zTmp = Complex(real: z.real.abs(), imag: z.imag.abs())
     z = zTmp*zTmp + c
-    ++n
+    n += 1
   }
   return n
 }
 
 print("\n== BURNING SHIP ==\n\n", terminator: "")
 
-var burningShip = fractal(getBurningShipIterations)
-burningShip(xMin: -2.0, xMax: 1.2, yMin: -2.1, yMax: 1.2, rows: 40, cols: 80, 
-            maxIterations: 200)
+fractal(getBurningShipIterations,
+        xMin: -2.0, xMax: 1.2, yMin: -2.1, yMax: 1.2, rows: 40, cols: 80, 
+        maxIterations: 200)
 
 // CHECK: ################################################################################
 // CHECK: ################################################################################

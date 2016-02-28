@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -49,7 +49,7 @@ public // COMPILER_INTRINSIC
 func _convertMutableArrayToPointerArgument<
   FromElement,
   ToPointer: _PointerType
->(inout a: [FromElement]) -> (AnyObject?, ToPointer) {
+>(a: inout [FromElement]) -> (AnyObject?, ToPointer) {
   // TODO: Putting a canary at the end of the array in checked builds might
   // be a good idea
 

@@ -90,9 +90,8 @@ func ==(lhs:MyBadReturnClass, rhs:MyBadReturnClass) {
 func testIS1() -> Int { return 0 }
 let _: String = testIS1() // expected-error {{cannot convert value of type 'Int' to specified type 'String'}}
 
-func insertA<T>(inout array : [T], elt : T) {
-  array.append(T); // expected-error {{cannot invoke 'append' with an argument list of type '((T).Type)'}}
-  // expected-note @-1 {{expected an argument list of type '(T)'}}
+func insertA<T>(array : inout [T], elt : T) {
+  array.append(T); // expected-error {{cannot invoke 'append' with an argument list of type '((T).Type)'}} expected-note {{expected an argument list of type '(T)'}}
 }
 
 // <rdar://problem/17875634> can't append to array of tuples
@@ -111,11 +110,9 @@ func test17875634() {
   match += coord // expected-error{{binary operator '+=' cannot be applied to operands of type '[(Int, Int)]' and '(Int, Int)'}}
   // expected-note @-1 {{overloads for '+=' exist with these partially matching parameter lists:}}
 
-  match.append(row, col) // expected-error{{cannot invoke 'append' with an argument list of type '(Int, Int)'}}
-  // expected-note @-1 {{expected an argument list of type '(Int, Int)'}}
+  match.append(row, col) // expected-error{{extra argument in call}}
 
-  match.append(1, 2) // expected-error{{cannot invoke 'append' with an argument list of type '(Int, Int)'}}
-  // expected-note @-1 {{expected an argument list of type '(Int, Int)'}}
+  match.append(1, 2) // expected-error{{extra argument in call}}
 
   match.append(coord)
   match.append((1, 2))
@@ -136,3 +133,24 @@ func test20770032() {
   if case let 1...10 = (1, 1) { // expected-warning{{'let' pattern has no effect; sub-pattern didn't bind any variables}} {{11-15=}} expected-error{{expression pattern of type 'Range<Int>' cannot match values of type '(Int, Int)'}}
   }
 }
+
+
+
+func tuple_splat1(a : Int, _ b : Int) {
+  let x = (1,2)
+  tuple_splat1(x)          // expected-warning {{passing 2 arguments to a callee as a single tuple value is deprecated}}
+  tuple_splat1(1, 2)       // Ok.
+  tuple_splat1((1, 2))     // expected-error {{missing argument for parameter #2 in call}}
+}
+
+// This take a tuple as a value, so it isn't a tuple splat.
+func tuple_splat2(q : (a : Int, b : Int)) {
+  let x = (1,2)
+  tuple_splat2(x)          // Ok
+  let y = (1, b: 2)
+  tuple_splat2(y)          // Ok
+  tuple_splat2((1, b: 2))  // Ok.
+  tuple_splat2(1, b: 2)    // expected-error {{extra argument 'b' in call}}
+}
+
+

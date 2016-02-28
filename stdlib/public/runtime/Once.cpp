@@ -1,8 +1,8 @@
-//===--- Once.cpp - Runtime support for lazy initialization ----------------==//
+//===--- Once.cpp - Runtime support for lazy initialization ---------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -14,6 +14,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "Private.h"
 #include "swift/Runtime/Once.h"
 #include "swift/Runtime/Debug.h"
 #include <type_traits>
@@ -22,7 +23,7 @@ using namespace swift;
 
 #ifdef __APPLE__
 
-// On OS X and and iOS, swift_once is implemented using GCD.
+// On OS X and iOS, swift_once is implemented using GCD.
 
 #include <dispatch/dispatch.h>
 static_assert(std::is_same<swift_once_t, dispatch_once_t>::value,
@@ -40,6 +41,8 @@ static_assert(sizeof(swift_once_t) <= sizeof(void*),
 void swift::swift_once(swift_once_t *predicate, void (*fn)(void *)) {
 #if defined(__APPLE__)
   dispatch_once_f(predicate, nullptr, fn);
+#elif defined(__CYGWIN__)
+  _swift_once_f(predicate, nullptr, fn);
 #else
   // FIXME: We're relying here on the coincidence that libstdc++ uses pthread's
   // pthread_once, and that on glibc pthread_once follows a compatible init

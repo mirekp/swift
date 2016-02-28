@@ -63,7 +63,7 @@ struct CustomGenericCollection<Key> : DictionaryLiteralConvertible {
   // GENERIC_PARAM_AND_ASSOC_TYPE-DAG: Decl[TypeAlias]/CurrNominal:        Key[#Key#]; name=Key
   // GENERIC_PARAM_AND_ASSOC_TYPE-DAG: Decl[TypeAlias]/CurrNominal:        Value[#Value#]; name=Value
   // GENERIC_PARAM_AND_ASSOC_TYPE: End completions
-  
+
   var count: Int { #^GENERIC_PARAM_AND_ASSOC_TYPE^# }
 }
 
@@ -159,3 +159,32 @@ func rdar22834017() {
 }
 // FIXME: We could provide a useful completion here. rdar://problem/22846558
 // INVALID_TYPE_INIT-NOT: Begin completions
+
+// RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=RDAR_23173692 | FileCheck %s -check-prefix=RDAR_23173692
+func rdar23173692() {
+  return IndexingGenerator(#^RDAR_23173692^#)
+}
+// RDAR_23173692: Begin completions
+
+// RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=RDAR_22769393 | FileCheck %s -check-prefix=RDAR_22769393
+public enum PropertyListItem {
+  case PLString(String)
+  case PLDict([String:PropertyListItem])
+}
+class Connection {
+  var handler: (Int32, [UInt8]) -> () = { _ in }
+}
+private let conn = Connection()
+conn.handler = { (msgID, msg) in
+  // Otherwise, we should have a structured message.
+  let info = { () -> PropertyListItem in }()
+  guard case .PLDict(var infoItems) = info else { fatalError("invalid message") }
+  guard case .Some(.PLString(let command)) = infoItems["command"] else { fatalError("invalid message") }
+  switch command {
+  case "listSessions":
+    var items = #^RDAR_22769393^#
+  default:
+    break
+  }
+}
+// RDAR_22769393: Begin completions

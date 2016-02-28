@@ -7,17 +7,17 @@ func foo(f f: (()->())!) {
 // CHECK:    sil hidden @{{.*}}foo{{.*}} : $@convention(thin) (@owned ImplicitlyUnwrappedOptional<() -> ()>) -> () {
 // CHECK:    bb0([[T0:%.*]] : $ImplicitlyUnwrappedOptional<() -> ()>):
 // CHECK: [[F:%.*]] = alloc_box $ImplicitlyUnwrappedOptional<() -> ()>
-// CHECK-NEXT: retain_value %0
-// CHECK-NEXT: store [[T0]] to [[F]]#1
-// CHECK:      [[T1:%.*]] = select_enum_addr [[F]]#1
+// CHECK-NEXT: [[PF:%.*]] = project_box [[F]]
+// CHECK: store [[T0]] to [[PF]]
+// CHECK:      [[T1:%.*]] = select_enum_addr [[PF]]
 // CHECK-NEXT: cond_br [[T1]], bb1, bb3
 //   If it does, project and load the value out of the implicitly unwrapped
 //   optional...
 // CHECK:    bb1:
-// CHECK-NEXT: [[FN0_ADDR:%.*]] = unchecked_take_enum_data_addr [[F]]
+// CHECK-NEXT: [[FN0_ADDR:%.*]] = unchecked_take_enum_data_addr [[PF]]
 // CHECK-NEXT: [[FN0:%.*]] = load [[FN0_ADDR]]
 //   ...unnecessarily reabstract back to () -> ()...
-// CHECK:      [[T0:%.*]] = function_ref @_TTRXFo_iT__iT__XFo__dT__ : $@convention(thin) (@owned @callee_owned (@out (), @in ()) -> ()) -> ()
+// CHECK:      [[T0:%.*]] = function_ref @_TTRXFo_iT__iT__XFo___ : $@convention(thin) (@owned @callee_owned (@in ()) -> @out ()) -> ()
 // CHECK-NEXT: [[FN1:%.*]] = partial_apply [[T0]]([[FN0]])
 //   .... then call it
 // CHECK-NEXT: apply [[FN1]]()

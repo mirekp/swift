@@ -1,4 +1,4 @@
-// RUN: %target-swift-frontend -sdk %S/Inputs -I %S/Inputs -enable-source-import %s -emit-silgen | FileCheck %s
+// RUN: %target-swift-frontend -Xllvm -sil-full-demangle -sdk %S/Inputs -I %S/Inputs -enable-source-import %s -emit-silgen | FileCheck %s
 
 // REQUIRES: objc_interop
 
@@ -50,13 +50,6 @@ infix operator «+» {}
 // CHECK-LABEL: sil hidden @_TZF8manglingXoi7p_qcaDcFTSiSi_Si
 func «+»(a: Int, b: Int) -> Int { return a + b }
 
-// Curried function entry points mangle in terms of their original types, not
-// their uncurried private SIL types.
-// CHECK-LABEL: sil hidden @_TF8mangling7curriedfT1aSi_FT1bSS_T_ : $@convention(thin) (@owned String, Int) -> ()
-// CHECK-LABEL: sil shared @_TF8mangling7curriedFT1aSi_FT1bSS_T_ : $@convention(thin) (Int) -> @owned @callee_owned (@owned String) -> ()
-func curried(a a: Int)(b: String) {}
-_ = curried(a: 1)
-
 protocol Foo {}
 protocol Bar {}
 
@@ -97,12 +90,14 @@ func uses_clang_struct(r r: NSRect) {}
 func uses_optionals(x x: Int?) -> UnicodeScalar? { return Optional() }
 
 enum GenericUnion<T> {
-  // CHECK-LABEL: sil hidden [transparent] @_TFO8mangling12GenericUnion3FoourfMGS0_x_FSiGS0_x_
+  // CHECK-LABEL: sil shared [transparent] @_TFO8mangling12GenericUnion3FoourfMGS0_x_FSiGS0_x_
   case Foo(Int)
-  // CHECK-LABEL: sil hidden [transparent] @_TFO8mangling12GenericUnion3BarurFMGS0_x_GS0_x_
-  case Bar
 }
- 
+
+func instantiateGenericUnionConstructor<T>(t: T) {
+  _ = GenericUnion<T>.Foo
+}
+
 struct HasVarInit {
   static var state = true && false
 }

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -20,6 +20,7 @@
 #include "swift/AST/DiagnosticsParse.h"
 #include "swift/AST/PrettyStackTrace.h"
 #include "swift/Basic/SourceManager.h"
+#include "swift/Basic/Timer.h"
 #include "swift/Parse/Lexer.h"
 #include "swift/Parse/CodeCompletionCallbacks.h"
 #include "swift/Parse/DelayedParsingCallbacks.h"
@@ -136,6 +137,7 @@ bool swift::parseIntoSourceFile(SourceFile &SF,
                                 SILParserState *SIL,
                                 PersistentParserState *PersistentState,
                                 DelayedParsingCallbacks *DelayedParseCB) {
+  SharedTimer timer("Parsing");
   Parser P(BufferID, SF, SIL, PersistentState);
   PrettyStackTraceParser StackTrace(P);
 
@@ -153,6 +155,7 @@ bool swift::parseIntoSourceFile(SourceFile &SF,
 void swift::performDelayedParsing(
     DeclContext *DC, PersistentParserState &PersistentState,
     CodeCompletionCallbacksFactory *CodeCompletionFactory) {
+  SharedTimer timer("Parsing");
   ParseDelayedFunctionBodies Walker(PersistentState,
                                     CodeCompletionFactory);
   DC->walkContext(Walker);
@@ -225,7 +228,8 @@ std::vector<Token> swift::tokenize(const LangOptions &LangOpts,
                                    const SourceManager &SM, unsigned BufferID,
                                    unsigned Offset, unsigned EndOffset,
                                    bool KeepComments,
-                                   bool TokenizeInterpolatedString) {
+                                   bool TokenizeInterpolatedString,
+                                   ArrayRef<Token> SplitTokens) {
   if (Offset == 0 && EndOffset == 0)
     EndOffset = SM.getRangeForBuffer(BufferID).getByteLength();
 
@@ -233,10 +237,34 @@ std::vector<Token> swift::tokenize(const LangOptions &LangOpts,
           KeepComments ? CommentRetentionMode::ReturnAsTokens
                        : CommentRetentionMode::AttachToNextToken,
           Offset, EndOffset);
+
+  auto TokComp = [&] (const Token &A, const Token &B) {
+    return SM.isBeforeInBuffer(A.getLoc(), B.getLoc());
+  };
+
+  std::set<Token, decltype(TokComp)> ResetTokens(TokComp);
+  for (auto C = SplitTokens.begin(), E = SplitTokens.end(); C != E; ++C) {
+    ResetTokens.insert(*C);
+  }
+
   std::vector<Token> Tokens;
   do {
     Tokens.emplace_back();
     L.lex(Tokens.back());
+
+    // If the token has the same location as a reset location,
+    // reset the token stream
+    auto F = ResetTokens.find(Tokens.back());
+    if (F != ResetTokens.end()) {
+      Tokens.back() = *F;
+      assert(Tokens.back().isNot(tok::string_literal));
+
+      auto NewState = L.getStateForBeginningOfTokenLoc(
+                                    F->getLoc().getAdvancedLoc(F->getLength()));
+      L.restoreState(NewState);
+      continue;
+    }
+
     if (Tokens.back().is(tok::string_literal) && TokenizeInterpolatedString) {
       Token StrTok = Tokens.back();
       Tokens.pop_back();
@@ -332,10 +360,17 @@ SourceLoc Parser::consumeStartingCharacterOfCurrentToken() {
     return consumeToken();
   }
 
-  // ... or a multi-charater token with the first caracter being the one that
+  markSplitToken(tok::oper_binary_unspaced, Tok.getText().substr(0, 1));
+
+  // ... or a multi-character token with the first character being the one that
   // we want to consume as a separate token.
   restoreParserPosition(getParserPositionAfterFirstCharacter(Tok));
   return PreviousLoc;
+}
+
+void Parser::markSplitToken(tok Kind, StringRef Txt) {
+  SplitTokens.emplace_back();
+  SplitTokens.back().setToken(Kind, Txt);
 }
 
 SourceLoc Parser::consumeStartingLess() {
@@ -388,30 +423,38 @@ void Parser::skipUntil(tok T1, tok T2) {
   // tok::unknown is a sentinel that means "don't skip".
   if (T1 == tok::unknown && T2 == tok::unknown) return;
   
-  while (Tok.isNot(tok::eof, tok::pound_endif, T1, T2))
+  while (Tok.isNot(T1, T2, tok::eof, tok::pound_endif, tok::code_complete))
     skipSingle();
 }
 
 void Parser::skipUntilAnyOperator() {
-  while (Tok.isNot(tok::eof) && Tok.isNotAnyOperator())
+  while (Tok.isNot(tok::eof, tok::pound_endif, tok::code_complete) &&
+         Tok.isNotAnyOperator())
     skipSingle();
 }
 
-void Parser::skipUntilGreaterInTypeList(bool protocolComposition) {
+/// \brief Skip until a token that starts with '>', and consume it if found.
+/// Applies heuristics that are suitable when trying to find the end of a list
+/// of generic parameters, generic arguments, or list of types in a protocol
+/// composition.
+SourceLoc Parser::skipUntilGreaterInTypeList(bool protocolComposition) {
+  SourceLoc lastLoc = Tok.getLoc();
   while (true) {
     switch (Tok.getKind()) {
     case tok::eof:
     case tok::l_brace:
     case tok::r_brace:
-      return;
+    case tok::code_complete:
+      return lastLoc;
 
 #define KEYWORD(X) case tok::kw_##X:
+#define POUND_KEYWORD(X) case tok::pound_##X:
 #include "swift/Parse/Tokens.def"
     // 'Self' can appear in types, skip it.
     if (Tok.is(tok::kw_Self))
       break;
-    if (isStartOfStmt() || isStartOfDecl())
-      return;
+    if (isStartOfStmt() || isStartOfDecl() || Tok.is(tok::pound_endif))
+      return lastLoc;
     break;
 
     case tok::l_paren:
@@ -421,57 +464,58 @@ void Parser::skipUntilGreaterInTypeList(bool protocolComposition) {
       // In generic type parameter list, skip '[' ']' '(' ')', because they
       // can appear in types.
       if (protocolComposition)
-        return;
+        return lastLoc;
       break;
 
     default:
       if (Tok.isAnyOperator() && startsWithGreater(Tok))
-        return;
+        return consumeStartingGreater();
+      
       break;
     }
+    lastLoc = Tok.getLoc();
     skipSingle();
   }
 }
 
 void Parser::skipUntilDeclRBrace() {
-  while (Tok.isNot(tok::eof) && Tok.isNot(tok::r_brace) &&
+  while (Tok.isNot(tok::eof, tok::r_brace, tok::pound_endif,
+                   tok::code_complete) &&
          !isStartOfDecl())
     skipSingle();
 }
 
 void Parser::skipUntilDeclStmtRBrace(tok T1) {
-  while (Tok.isNot(T1) && Tok.isNot(tok::eof) && Tok.isNot(tok::r_brace) &&
-         Tok.isNot(tok::pound_endif) &&
+  while (Tok.isNot(T1, tok::eof, tok::r_brace, tok::pound_endif,
+                   tok::code_complete) &&
          !isStartOfStmt() && !isStartOfDecl()) {
     skipSingle();
   }
 }
 
 void Parser::skipUntilDeclRBrace(tok T1, tok T2) {
-  while (Tok.isNot(T1) && Tok.isNot(T2) &&
-         Tok.isNot(tok::eof) && Tok.isNot(tok::r_brace) &&
+  while (Tok.isNot(T1, T2, tok::eof, tok::r_brace, tok::pound_endif) &&
          !isStartOfDecl()) {
     skipSingle();
   }
 }
 
-void Parser::skipUntilConfigBlockClose() {
-  while (Tok.isNot(tok::pound_else) &&
-         Tok.isNot(tok::pound_elseif) &&
-         Tok.isNot(tok::pound_endif) &&
-         Tok.isNot(tok::eof)) {
+void Parser::skipUntilConditionalBlockClose() {
+  while (Tok.isNot(tok::pound_else, tok::pound_elseif, tok::pound_endif,
+                   tok::eof)) {
     skipSingle();
   }
 }
 
-bool Parser::parseConfigEndIf(SourceLoc &Loc) {
+bool Parser::parseEndIfDirective(SourceLoc &Loc) {
   Loc = Tok.getLoc();
-  if (parseToken(tok::pound_endif, diag::expected_close_to_config_stmt)) {
+  if (parseToken(tok::pound_endif, diag::expected_close_to_if_directive)) {
     Loc = PreviousLoc;
-    skipUntilConfigBlockClose();
+    skipUntilConditionalBlockClose();
     return true;
   } else if (!Tok.isAtStartOfLine() && Tok.isNot(tok::eof))
-    diagnose(Tok.getLoc(), diag::extra_tokens_config_directive);
+    diagnose(Tok.getLoc(),
+             diag::extra_tokens_conditional_compilation_directive);
   return false;
 }
 
@@ -612,28 +656,44 @@ Parser::parseList(tok RightK, SourceLoc LeftLoc, SourceLoc &RightLoc,
     // If the lexer stopped with an EOF token whose spelling is ")", then this
     // is actually the tuple that is a string literal interpolation context.
     // Just accept the ")" and build the tuple as we usually do.
-    if (Tok.is(tok::eof) && Tok.getText() == ")") {
+    if (Tok.is(tok::eof) && Tok.getText() == ")" && RightK == tok::r_paren) {
       RightLoc = Tok.getLoc();
       return Status;
     }
+    SourceLoc SepLoc = Tok.getLoc();
     if (consumeIf(SeparatorK)) {
-      if (AllowSepAfterLast && Tok.is(RightK))
+      if (Tok.is(RightK)) {
+        if (!AllowSepAfterLast) {
+          diagnose(Tok, diag::unexpected_separator,
+                   SeparatorK == tok::comma ? "," : ";")
+            .fixItRemove(SourceRange(SepLoc));
+        }
         break;
-      else
-        continue;
+      }
+      continue;
     }
     if (!OptionalSep) {
+      // If we're in a comma-separated list and the next token starts a new
+      // declaration at the beginning of a new line, skip until the end.
+      if (SeparatorK == tok::comma && Tok.isAtStartOfLine() &&
+          isStartOfDecl() && Tok.getLoc() != StartLoc) {
+        skipUntilDeclRBrace(RightK, SeparatorK);
+        break;
+      }
+
       StringRef Separator = (SeparatorK == tok::comma ? "," : ";");
       diagnose(Tok, diag::expected_separator, Separator)
         .fixItInsertAfter(PreviousLoc, Separator);
       Status.setIsParseError();
     }
+
+
     // If we haven't made progress, skip ahead
     if (Tok.getLoc() == StartLoc) {
       skipUntilDeclRBrace(RightK, SeparatorK);
       if (Tok.is(RightK))
         break;
-      if (Tok.is(tok::eof)) {
+      if (Tok.is(tok::eof) || Tok.is(tok::pound_endif)) {
         RightLoc = PreviousLoc.isValid()? PreviousLoc : Tok.getLoc();
         IsInputIncomplete = true;
         Status.setIsParseError();
@@ -726,18 +786,108 @@ SourceFile &ParserUnit::getSourceFile() {
   return *Impl.SF;
 }
 
-ConfigParserState swift::operator&&(ConfigParserState lhs,
-                                     ConfigParserState rhs) {
-  return ConfigParserState(lhs.isConditionActive() && rhs.isConditionActive(),
-                           ConfigExprKind::Binary);
+ConditionalCompilationExprState
+swift::operator&&(ConditionalCompilationExprState lhs,
+                  ConditionalCompilationExprState rhs) {
+  return {lhs.isConditionActive() && rhs.isConditionActive(),
+          ConditionalCompilationExprKind::Binary};
 }
 
-ConfigParserState swift::operator||(ConfigParserState lhs,
-                                    ConfigParserState rhs) {
-  return ConfigParserState(lhs.isConditionActive() || rhs.isConditionActive(),
-                           ConfigExprKind::Binary);
+ConditionalCompilationExprState
+swift::operator||(ConditionalCompilationExprState lhs,
+                  ConditionalCompilationExprState rhs) {
+  return {lhs.isConditionActive() || rhs.isConditionActive(),
+          ConditionalCompilationExprKind::Binary};
 }
 
-ConfigParserState swift::operator!(ConfigParserState Result) {
-  return ConfigParserState(!Result.isConditionActive(), Result.getKind());
+ConditionalCompilationExprState
+swift::operator!(ConditionalCompilationExprState state) {
+  return {!state.isConditionActive(), state.getKind()};
+}
+
+/// Parse a stringified Swift declaration name, e.g. "init(frame:)".
+StringRef swift::parseDeclName(StringRef name,
+                               SmallVectorImpl<StringRef> &argumentLabels,
+                               bool &isFunctionName) {
+  if (name.empty()) return "";
+
+  if (name.back() != ')') {
+    isFunctionName = false;
+    if (Lexer::isIdentifier(name) && name != "_")
+      return name;
+
+    return "";
+  }
+
+  isFunctionName = true;
+
+  StringRef BaseName, Parameters;
+  std::tie(BaseName, Parameters) = name.split('(');
+  if (!Lexer::isIdentifier(BaseName) || BaseName == "_")
+    return "";
+
+  if (Parameters.empty())
+    return "";
+  Parameters = Parameters.drop_back(); // ')'
+
+  if (Parameters.empty())
+    return BaseName;
+
+  if (Parameters.back() != ':')
+    return "";
+
+  do {
+    StringRef NextParam;
+    std::tie(NextParam, Parameters) = Parameters.split(':');
+
+    if (!Lexer::isIdentifier(NextParam))
+      return "";
+    if (NextParam == "_")
+      argumentLabels.push_back("");
+    else
+      argumentLabels.push_back(NextParam);
+  } while (!Parameters.empty());
+
+  return BaseName;
+}
+
+DeclName swift::formDeclName(ASTContext &ctx,
+                             StringRef baseName,
+                             ArrayRef<StringRef> argumentLabels,
+                             bool isFunctionName) {
+  // We cannot import when the base name is not an identifier.
+  if (baseName.empty() || !Lexer::isIdentifier(baseName))
+    return DeclName();
+
+  // Get the identifier for the base name.
+  Identifier baseNameId = ctx.getIdentifier(baseName);
+
+  // For non-functions, just use the base name.
+  if (!isFunctionName) return baseNameId;
+
+  // For functions, we need to form a complete name.
+
+  // Convert the argument names.
+  SmallVector<Identifier, 4> argumentLabelIds;
+  for (auto argName : argumentLabels) {
+    if (argumentLabels.empty() || !Lexer::isIdentifier(argName)) {
+      argumentLabelIds.push_back(Identifier());
+      continue;
+    }
+
+    argumentLabelIds.push_back(ctx.getIdentifier(argName));
+  }
+
+  // Build the result.
+  return DeclName(ctx, baseNameId, argumentLabelIds);
+}
+
+DeclName swift::parseDeclName(ASTContext &ctx, StringRef name) {
+  // Parse the name string.
+  SmallVector<StringRef, 4> argumentLabels;
+  bool isFunctionName;
+  StringRef baseName = parseDeclName(name, argumentLabels, isFunctionName);
+
+  // Form the result.
+  return formDeclName(ctx, baseName, argumentLabels, isFunctionName);
 }

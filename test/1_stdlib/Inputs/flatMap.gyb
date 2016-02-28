@@ -1,4 +1,6 @@
-%import inspect,os.path,sys
+%import inspect
+%import os.path
+%import sys
 %sys.path = [os.path.split(inspect.getframeinfo(inspect.currentframe()).filename)[0] or '.'] + sys.path
 
 % for Kind in Kinds:
@@ -13,7 +15,7 @@ ${Test}.test("flatMap/${Kind}/Lazy") {
     var result = s.lazy.flatMap {
       (element: OpaqueValue<Int>) -> ${Minimal}<OpaqueValue<Int32>> in
       _blackHole(closureLifetimeTracker)
-      ++timesClosureWasCalled
+      timesClosureWasCalled += 1
       return ${Minimal}<OpaqueValue<Int32>>(
         elements: test.transform(element.value).map { OpaqueValue(Int32($0)) })
     }

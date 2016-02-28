@@ -81,7 +81,7 @@ class SubCls : MyCls, Prot {
   var protocolProperty2 = 0
 }
 
-// CHECK: func <Func>genFn</Func><<GenericTypeParam>T</GenericTypeParam> : <Protocol@64:10>Prot</Protocol> where <GenericTypeParam@85:12>T</GenericTypeParam>.<AssociatedType@65:13>Blarg</AssociatedType> : Prot2>(<Param>p</Param> : <GenericTypeParam@85:12>T</GenericTypeParam>) -> <iStruct@>Int</iStruct> {}{{$}}
+// CHECK: func <Func>genFn</Func><<GenericTypeParam>T</GenericTypeParam> : <Protocol@64:10>Prot</Protocol> where <GenericTypeParam@85:12>T</GenericTypeParam>.<AssociatedType@65:13>Blarg</AssociatedType> : <Protocol@71:10>Prot2</Protocol>>(<Param>p</Param> : <GenericTypeParam@85:12>T</GenericTypeParam>) -> <iStruct@>Int</iStruct> {}{{$}}
 func genFn<T : Prot where T.Blarg : Prot2>(p : T) -> Int {}
 
 func test(x: Int) {
@@ -286,7 +286,7 @@ extension C12.Inn {}
 // CHECK: extension <TypeAlias@[[@LINE-4]]:11>AliasC12</TypeAlias>.<TypeAlias@[[@LINE-6]]:13>AliasInn</TypeAlias> {}
 extension AliasC12.AliasInn {}
 
-typealias  AliasPH = C12
+typealias AliasPH = C12
 func testPH(x: Int) {}
 func testPH(x: AliasPH) {}
 // CHECK: <Func@[[@LINE-1]]:6>testPH</Func>(<#T##x: AliasPH##AliasPH##C12#>)

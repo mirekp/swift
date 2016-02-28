@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -310,6 +310,9 @@ void DeclAttribute::print(ASTPrinter &Printer,
     if (Attr->Obsoleted)
       Printer << ", obsoleted=" << Attr->Obsoleted.getValue().getAsString();
 
+    if (!Attr->Rename.empty())
+      Printer << ", renamed=\"" << Attr->Rename << "\"";
+
     // If there's no message, but this is specifically an imported
     // "unavailable in Swift" attribute, synthesize a message to look good in
     // the generated interface.
@@ -357,6 +360,32 @@ void DeclAttribute::print(ASTPrinter &Printer,
   case DAK_ObjCBridged:
     // Not printed.
     return;
+
+  case DAK_Swift3Migration: {
+    auto attr = cast<Swift3MigrationAttr>(this);
+    Printer << "@swift3_migration(";
+
+    bool printedAny = false;
+    auto printSeparator = [&] {
+      if (printedAny) Printer << ", ";
+      else printedAny = true;
+    };
+
+    if (attr->getRenamed()) {
+      printSeparator();
+      Printer << "renamed=\"" << attr->getRenamed() << "\"";
+    }
+
+    if (!attr->getMessage().empty()) {
+      printSeparator();
+      Printer << "message=\"";
+      Printer << attr->getMessage();
+      Printer << "\"";
+    }
+
+    Printer << ")";
+    break;
+  }
 
   case DAK_SynthesizedProtocol:
     // Not printed.
@@ -475,6 +504,8 @@ StringRef DeclAttribute::getAttrName() const {
     return "<<ObjC bridged>>";
   case DAK_SynthesizedProtocol:
     return "<<synthesized protocol>>";
+  case DAK_Swift3Migration:
+    return "swift3_migration";
   case DAK_WarnUnusedResult:
     return "warn_unused_result";
   }
@@ -524,8 +555,7 @@ ObjCAttr *ObjCAttr::createNullary(ASTContext &Ctx, SourceLoc AtLoc,
                                   SourceLoc ObjCLoc, SourceLoc LParenLoc, 
                                   SourceLoc NameLoc, Identifier Name,
                                   SourceLoc RParenLoc) {
-  unsigned size = sizeof(ObjCAttr) + 3 * sizeof(SourceLoc);
-  void *mem = Ctx.Allocate(size, alignof(ObjCAttr));
+  void *mem = Ctx.Allocate(totalSizeToAlloc<SourceLoc>(3), alignof(ObjCAttr));
   return new (mem) ObjCAttr(AtLoc, SourceRange(ObjCLoc),
                             ObjCSelector(Ctx, 0, Name),
                             SourceRange(LParenLoc, RParenLoc),
@@ -543,8 +573,8 @@ ObjCAttr *ObjCAttr::createSelector(ASTContext &Ctx, SourceLoc AtLoc,
                                    ArrayRef<Identifier> Names,
                                    SourceLoc RParenLoc) {
   assert(NameLocs.size() == Names.size());
-  unsigned size = sizeof(ObjCAttr) + (NameLocs.size() + 2) * sizeof(SourceLoc);
-  void *mem = Ctx.Allocate(size, alignof(ObjCAttr));
+  void *mem = Ctx.Allocate(totalSizeToAlloc<SourceLoc>(NameLocs.size() + 2),
+                           alignof(ObjCAttr));
   return new (mem) ObjCAttr(AtLoc, SourceRange(ObjCLoc),
                             ObjCSelector(Ctx, Names.size(), Names),
                             SourceRange(LParenLoc, RParenLoc),

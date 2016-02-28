@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -72,7 +72,7 @@ public func ∖ <
 /// Assigns the relative complement between `lhs` and `rhs` to `lhs`.
 public func ∖= <
   T, S: SequenceType where S.Generator.Element == T
-  >(inout lhs: Set<T>, rhs: S) {
+  >(lhs: inout Set<T>, rhs: S) {
   lhs.subtractInPlace(rhs)
 }
 
@@ -86,7 +86,7 @@ public func ∪ <
 /// Assigns the union of `lhs` and `rhs` to `lhs`.
 public func ∪= <
   T, S: SequenceType where S.Generator.Element == T
-  >(inout lhs: Set<T>, rhs: S) {
+  >(lhs: inout Set<T>, rhs: S) {
   lhs.unionInPlace(rhs)
 }
 
@@ -100,7 +100,7 @@ public func ∩ <
 /// Assigns the intersection of `lhs` and `rhs` to `lhs`.
 public func ∩= <
   T, S: SequenceType where S.Generator.Element == T
-  >(inout lhs: Set<T>, rhs: S) {
+  >(lhs: inout Set<T>, rhs: S) {
   lhs.intersectInPlace(rhs)
 }
 
@@ -114,7 +114,7 @@ public func ⨁ <
 /// Assigns to `lhs` the set with elements in `lhs` or `rhs` but not in both.
 public func ⨁= <
   T, S: SequenceType where S.Generator.Element == T
-  >(inout lhs: Set<T>, rhs: S) {
+  >(lhs: inout Set<T>, rhs: S) {
   lhs.exclusiveOrInPlace(rhs)
 }
 

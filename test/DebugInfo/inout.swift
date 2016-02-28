@@ -17,20 +17,15 @@ typealias MyFloat = Float
 // CHECK-SAME:       %[[ALLOCB]], metadata ![[B:[0-9]+]], metadata !{{[0-9]+}})
 
 // Closure with promoted capture.
-// PROMO-CHECK: define {{.*}}@_TTSf2d_i___TFF5inout13modifyFooHeapFTRVs5Int64Sf_T_U_FT_S0_
+// PROMO-CHECK: define {{.*}}@_TTSf2i___TFF5inout13modifyFooHeapFTRVs5Int64Sf_T_U_FT_S0_
 // PROMO-CHECK: call void @llvm.dbg.declare(metadata {{(i32|i64)}}* %
 // PROMO-CHECK-SAME:   metadata ![[A1:[0-9]+]], metadata ![[EMPTY_EXPR:[0-9]+]])
 
 // PROMO-CHECK: ![[EMPTY_EXPR]] = !DIExpression()
 // PROMO-CHECK: ![[A1]] = !DILocalVariable(name: "a", arg: 1
 // PROMO-CHECK-SAME:                       type: !"_TtVs5Int64"
-func modifyFooHeap(inout a: Int64,
-  // CHECK: ![[A]] = !DILocalVariable(name: "a", arg: 1
-  // CHECK-SAME:         line: [[@LINE-2]],{{.*}} type: !"_TtRVs5Int64"
-  // CHECK: ![[B]] = !DILocalVariable(name: "b", scope:
-  // CHECK-SAME:         line: [[@LINE+5]],{{.*}} type: ![[MYFLOAT:[0-9]+]]
-  // CHECK: ![[MYFLOAT]] = !DIDerivedType(tag: DW_TAG_typedef,
-  // CHECK-SAME:           name: "_Tta5inout7MyFloat",{{.*}} baseType: !"_TtSf"
+func modifyFooHeap(a: inout Int64,
+// CHECK-DAG: ![[A]] = !DILocalVariable(name: "a", arg: 1{{.*}} line: [[@LINE-1]],{{.*}} type: !"_TtRVs5Int64"
                    _ b: MyFloat)
 {
     var b = b
@@ -47,13 +42,12 @@ func modifyFooHeap(inout a: Int64,
 // FOO-CHECK: call void @llvm.dbg.declare(metadata %Vs5Int64** %
 // FOO-CHECK-SAME:          metadata ![[U:[0-9]+]], metadata ![[EMPTY_EXPR:.*]])
 // FOO-CHECK: ![[EMPTY_EXPR]] = !DIExpression()
-func modifyFoo(inout u: Int64,
-// FOO-CHECK-DAG: !DILocalVariable(name: "v", scope:{{.*}} line: [[@LINE+5]],{{.*}} type: ![[MYFLOAT:[0-9]+]]
+func modifyFoo(u: inout Int64,
+// FOO-CHECK-DAG: !DILocalVariable(name: "v", arg: 2{{.*}} line: [[@LINE+2]],{{.*}} type: ![[MYFLOAT:[0-9]+]]
 // FOO-CHECK-DAG: [[U]] = !DILocalVariable(name: "u", arg: 1{{.*}} line: [[@LINE-2]],{{.*}} type: !"_TtRVs5Int64"
                _ v: MyFloat)
 // FOO-CHECK-DAG: ![[MYFLOAT]] = !DIDerivedType(tag: DW_TAG_typedef, name: "_Tta5inout7MyFloat",{{.*}} baseType: !"_TtSf"
 {
-    var v = v
     if (v > 2.71) {
       u = u - 41
     }

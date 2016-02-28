@@ -2,10 +2,17 @@
 // REQUIRES: executable_test
 
 // XFAIL: interpret
-// XFAIL: linux
 
 import StdlibUnittest
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+import SwiftPrivate
+#if _runtime(_ObjC)
+import ObjectiveC
 import Foundation
+#endif
 
 extension String {
   var bufferID: UInt {
@@ -28,8 +35,8 @@ StringTests.test("sizeof") {
 func checkUnicodeScalarViewIteration(
     expectedScalars: [UInt32], _ str: String
 ) {
-  if true {
-    var us = str.unicodeScalars
+  do {
+    let us = str.unicodeScalars
     var i = us.startIndex
     let end = us.endIndex
     var decoded: [UInt32] = []
@@ -40,8 +47,8 @@ func checkUnicodeScalarViewIteration(
     }
     expectEqual(expectedScalars, decoded)
   }
-  if true {
-    var us = str.unicodeScalars
+  do {
+    let us = str.unicodeScalars
     let start = us.startIndex
     var i = us.endIndex
     var decoded: [UInt32] = []
@@ -94,14 +101,14 @@ StringTests.test("ForeignIndexes/Valid") {
   //
   // <rdar://problem/18037897> Design, document, implement invalidation model
   // for foreign String indexes
-  if true {
+  do {
     let donor = "abcdef"
     let acceptor = "uvwxyz"
     expectEqual("u", acceptor[donor.startIndex])
     expectEqual("wxy",
       acceptor[donor.startIndex.advancedBy(2)..<donor.startIndex.advancedBy(5)])
   }
-  if true {
+  do {
     let donor = "abcdef"
     let acceptor = "\u{1f601}\u{1f602}\u{1f603}"
     expectEqual("\u{fffd}", acceptor[donor.startIndex])
@@ -115,8 +122,7 @@ StringTests.test("ForeignIndexes/Valid") {
 
 StringTests.test("ForeignIndexes/UnexpectedCrash")
   .xfail(
-    .Custom({ true },
-    reason: "<rdar://problem/18029290> String.Index caches the grapheme " +
+    .Always("<rdar://problem/18029290> String.Index caches the grapheme " +
       "cluster size, but it is not always correct to use"))
   .code {
 
@@ -185,7 +191,7 @@ StringTests.test("ForeignIndexes/replaceRange/OutOfBoundsTrap/2") {
 }
 
 StringTests.test("ForeignIndexes/removeAtIndex/OutOfBoundsTrap") {
-  if true {
+  do {
     let donor = "abcdef"
     var acceptor = "uvw"
 
@@ -202,7 +208,7 @@ StringTests.test("ForeignIndexes/removeAtIndex/OutOfBoundsTrap") {
 }
 
 StringTests.test("ForeignIndexes/removeRange/OutOfBoundsTrap/1") {
-  if true {
+  do {
     let donor = "abcdef"
     var acceptor = "uvw"
 
@@ -235,7 +241,10 @@ StringTests.test("_splitFirst") {
   expectEqual("bar", after)
 }
 
-StringTests.test("hasPrefix") {
+StringTests.test("hasPrefix")
+  .skip(.NativeRuntime("String.hasPrefix undefined without _runtime(_ObjC)"))
+  .code {
+#if _runtime(_ObjC)
   expectFalse("".hasPrefix(""))
   expectFalse("".hasPrefix("a"))
   expectFalse("a".hasPrefix(""))
@@ -247,60 +256,63 @@ StringTests.test("hasPrefix") {
   expectFalse("a\u{0301}bc".hasPrefix("a"))
   expectTrue("\u{00e1}bc".hasPrefix("a\u{0301}"))
   expectTrue("a\u{0301}bc".hasPrefix("\u{00e1}"))
+#else
+  expectUnreachable()
+#endif
 }
 
 StringTests.test("literalConcatenation") {
-  if true {
+  do {
     // UnicodeScalarLiteral + UnicodeScalarLiteral
     var s = "1" + "2"
     expectType(String.self, &s)
     expectEqual("12", s)
   }
-  if true {
+  do {
     // UnicodeScalarLiteral + ExtendedGraphemeClusterLiteral
     var s = "1" + "a\u{0301}"
     expectType(String.self, &s)
     expectEqual("1a\u{0301}", s)
   }
-  if true {
+  do {
     // UnicodeScalarLiteral + StringLiteral
     var s = "1" + "xyz"
     expectType(String.self, &s)
     expectEqual("1xyz", s)
   }
 
-  if true {
+  do {
     // ExtendedGraphemeClusterLiteral + UnicodeScalar
     var s = "a\u{0301}" + "z"
     expectType(String.self, &s)
     expectEqual("a\u{0301}z", s)
   }
-  if true {
+  do {
     // ExtendedGraphemeClusterLiteral + ExtendedGraphemeClusterLiteral
     var s = "a\u{0301}" + "e\u{0302}"
     expectType(String.self, &s)
     expectEqual("a\u{0301}e\u{0302}", s)
   }
-  if true {
+  do {
     // ExtendedGraphemeClusterLiteral + StringLiteral
     var s = "a\u{0301}" + "xyz"
     expectType(String.self, &s)
     expectEqual("a\u{0301}xyz", s)
   }
 
-  if true {
+  do {
     // StringLiteral + UnicodeScalar
     var s = "xyz" + "1"
     expectType(String.self, &s)
     expectEqual("xyz1", s)
   }
-  if true {
+  do {
     // StringLiteral + ExtendedGraphemeClusterLiteral
     var s = "xyz" + "a\u{0301}"
     expectType(String.self, &s)
     expectEqual("xyza\u{0301}", s)
   }
-  if true {
+  do {
     // StringLiteral + StringLiteral
     var s = "xyz" + "abc"
     expectType(String.self, &s)
@@ -388,7 +400,7 @@ StringTests.test("COW/removeRange/start") {
   let literalIdentity = str.bufferID
 
   // Check literal-to-heap reallocation.
-  if true {
+  do {
     let slice = str
     expectEqual(literalIdentity, str.bufferID)
     expectEqual(literalIdentity, slice.bufferID)
@@ -415,7 +427,7 @@ StringTests.test("COW/removeRange/start") {
 
   // Check heap-to-heap reallocation.
   expectEqual("345678", str)
-  if true {
+  do {
     let heapStrIdentity1 = str.bufferID
 
     let slice = str
@@ -449,7 +461,7 @@ StringTests.test("COW/removeRange/end") {
 
   // Check literal-to-heap reallocation.
   expectEqual("12345678", str)
-  if true {
+  do {
     let slice = str
     expectEqual(literalIdentity, str.bufferID)
     expectEqual(literalIdentity, slice.bufferID)
@@ -487,7 +499,7 @@ StringTests.test("COW/removeRange/end") {
 
   // Check heap-to-heap reallocation.
   expectEqual("123456", str)
-  if true {
+  do {
     let heapStrIdentity1 = str.bufferID
 
     let slice = str
@@ -528,7 +540,7 @@ StringTests.test("COW/removeRange/end") {
 
 StringTests.test("COW/replaceRange/end") {
   // Check literal-to-heap reallocation.
-  if true {
+  do {
     var str = "12345678"
     let literalIdentity = str.bufferID
 
@@ -558,7 +570,7 @@ StringTests.test("COW/replaceRange/end") {
   }
 
   // Check literal-to-heap reallocation.
-  if true {
+  do {
     var str = "12345678"
     let literalIdentity = str.bufferID
 
@@ -600,7 +612,10 @@ func asciiString<
   return s
 }
 
-StringTests.test("stringCoreExtensibility") {
+StringTests.test("stringCoreExtensibility")
+  .skip(.NativeRuntime("Foundation dependency"))
+  .code {
+#if _runtime(_ObjC)
   let ascii = UTF16.CodeUnit(UnicodeScalar("X").value)
   let nonAscii = UTF16.CodeUnit(UnicodeScalar("é").value)
 
@@ -633,9 +648,15 @@ StringTests.test("stringCoreExtensibility") {
       }
     }
   }
+#else
+  expectUnreachable()
+#endif
 }
 
-StringTests.test("stringCoreReserve") {
+StringTests.test("stringCoreReserve")
+  .skip(.NativeRuntime("Foundation dependency"))
+  .code {
+#if _runtime(_ObjC)
   for k in 0...5 {
     var base: String
     var startedNative: Bool
@@ -690,6 +711,9 @@ StringTests.test("stringCoreReserve") {
     }
     expectEqual(expected, base)
   }
+#else
+  expectUnreachable()
+#endif
 }
 
 func makeStringCore(base: String) -> _StringCore {
@@ -796,7 +820,7 @@ StringTests.test("toInt") {
   // then print if the new String is or is not still an Int.
   func testConvertabilityOfStringWithModification(
     initialValue: Int,
-    modification: (inout chars: [UTF8.CodeUnit]) -> Void
+    modification: (chars: inout [UTF8.CodeUnit]) -> Void
   ) {
     var chars = Array(String(initialValue).utf8)
     modification(chars: &chars)
@@ -805,15 +829,15 @@ StringTests.test("toInt") {
   }
 
   testConvertabilityOfStringWithModification(Int.min) {
-    $0[2]++; ()  // underflow by lots
+    $0[2] += 1; ()  // underflow by lots
   }
 
   testConvertabilityOfStringWithModification(Int.max) {
-    $0[1]++; ()  // overflow by lots
+    $0[1] += 1; ()  // overflow by lots
   }
 
   // Test values lower than min.
-  if true {
+  do {
     let base = UInt(Int.max)
     expectOptionalEqual(Int.min + 1, Int("-\(base)"))
     expectOptionalEqual(Int.min, Int("-\(base + 1)"))
@@ -823,7 +847,7 @@ StringTests.test("toInt") {
   }
 
   // Test values greater than min.
-  if true {
+  do {
     let base = UInt(Int.max)
     for i in UInt(0)..<20 {
       expectOptionalEqual(-Int(base - i) , Int("-\(base - i)"))
@@ -831,7 +855,7 @@ StringTests.test("toInt") {
   }
 
   // Test values greater than max.
-  if true {
+  do {
     let base = UInt(Int.max)
     expectOptionalEqual(Int.max, Int("\(base)"))
     for i in 1..<20 {
@@ -840,7 +864,7 @@ StringTests.test("toInt") {
   }
 
   // Test values lower than max.
-  if true {
+  do {
     let base = Int.max
     for i in 0..<20 {
       expectOptionalEqual(base - i, Int("\(base - i)"))
@@ -865,7 +889,7 @@ StringTests.test("Construction") {
 }
 
 StringTests.test("Conversions") {
-  if true {
+  do {
     var c: Character = "a"
     let x = String(c)
     expectTrue(x._core.isASCII)
@@ -874,7 +898,7 @@ StringTests.test("Conversions") {
     expectEqual(s, x)
   }
 
-  if true {
+  do {
     var c: Character = "\u{B977}"
     let x = String(c)
     expectFalse(x._core.isASCII)
@@ -886,12 +910,22 @@ StringTests.test("Conversions") {
 
 // Check the internal functions are correct for ASCII values
 StringTests.test(
-  "forall x: Int8, y: Int8 . x < 128 ==> x <ascii y == x <unicode y") {
+  "forall x: Int8, y: Int8 . x < 128 ==> x <ascii y == x <unicode y")
+  .skip(.NativeRuntime("String._compareASCII undefined without _runtime(_ObjC)"))
+  .code {
+#if _runtime(_ObjC)
   let asciiDomain = (0..<128).map({ String(UnicodeScalar($0)) })
   expectEqualMethodsForDomain(
     asciiDomain, asciiDomain, 
     String._compareDeterministicUnicodeCollation, String._compareASCII)
+#else
+  expectUnreachable()
+#endif
 }
+
+#if os(Linux)
+import Glibc
+#endif
 
 StringTests.test("lowercaseString") {
   // Use setlocale so tolower() is correct on ASCII.
@@ -1029,7 +1063,10 @@ StringTests.test("unicodeViews") {
 
 // Validate that index conversion does something useful for Cocoa
 // programmers.
-StringTests.test("indexConversion") {
+StringTests.test("indexConversion")
+  .skip(.NativeRuntime("Foundation dependency"))
+  .code {
+#if _runtime(_ObjC)
   let re : NSRegularExpression
   do {
     re = try NSRegularExpression(
@@ -1052,30 +1089,33 @@ StringTests.test("indexConversion") {
   }
 
   expectEqual(["furth", "lard", "bart"], matches)
+#else
+  expectUnreachable()
+#endif
 }
 
 StringTests.test("String.append(_: UnicodeScalar)") {
   var s = ""
 
-  if true {
+  do {
     // U+0061 LATIN SMALL LETTER A
     let input: UnicodeScalar = "\u{61}"
     s.append(input)
     expectEqual([ "\u{61}" ], Array(s.unicodeScalars))
   }
-  if true {
+  do {
     // U+304B HIRAGANA LETTER KA
     let input: UnicodeScalar = "\u{304b}"
     s.append(input)
     expectEqual([ "\u{61}", "\u{304b}" ], Array(s.unicodeScalars))
   }
-  if true {
+  do {
     // U+3099 COMBINING KATAKANA-HIRAGANA VOICED SOUND MARK
     let input: UnicodeScalar = "\u{3099}"
     s.append(input)
     expectEqual([ "\u{61}", "\u{304b}", "\u{3099}" ], Array(s.unicodeScalars))
   }
-  if true {
+  do {
     // U+1F425 FRONT-FACING BABY CHICK
     let input: UnicodeScalar = "\u{1f425}"
     s.append(input)

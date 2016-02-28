@@ -147,11 +147,21 @@ macro(swift_common_standalone_build_config product is_cross_compiling)
   find_program(LLVM_TABLEGEN_EXE "llvm-tblgen" "${${product}_NATIVE_LLVM_TOOLS_PATH}"
     NO_DEFAULT_PATH)
 
-  set(LLVM_CMAKE_PATH "${LLVM_BINARY_DIR}/share/llvm/cmake")
-  list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_PATH}")
+  set(LLVM_CMAKE_PATHS
+      "${LLVM_BINARY_DIR}/share/llvm/cmake"
+      "${LLVM_BINARY_DIR}/lib/cmake/llvm")
 
-  set(LLVMCONFIG_FILE "${LLVM_CMAKE_PATH}/LLVMConfig.cmake")
-  if(NOT EXISTS ${LLVMCONFIG_FILE})
+  set(LLVMCONFIG_FILE)
+  foreach(CMAKE_PATH ${LLVM_CMAKE_PATHS})
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_PATH}")
+
+    if(EXISTS "${CMAKE_PATH}/LLVMConfig.cmake")
+      set(LLVMCONFIG_FILE "${CMAKE_PATH}/LLVMConfig.cmake")
+      break()
+    endif()
+  endforeach()
+
+  if(${LLVMCONFIG_FILE} STREQUAL "")
     message(FATAL_ERROR "Not found: ${LLVMCONFIG_FILE}")
   endif()
 
@@ -261,6 +271,11 @@ macro(swift_common_standalone_build_config product is_cross_compiling)
 
   set(LLVM_INCLUDE_TESTS TRUE)
   set(LLVM_INCLUDE_DOCS TRUE)
+
+  option(LLVM_ENABLE_DOXYGEN "Enable doxygen support" FALSE)
+  if (LLVM_ENABLE_DOXYGEN)
+    find_package(Doxygen REQUIRED)
+  endif()
 endmacro()
 
 # Common cmake project config for unified builds.

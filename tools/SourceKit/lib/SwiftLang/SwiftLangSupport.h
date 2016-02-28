@@ -1,8 +1,8 @@
-//===--- SwiftLangSupport.h - ------------------------------------*- C++ -*-==//
+//===--- SwiftLangSupport.h - -----------------------------------*- C++ -*-===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -137,19 +137,26 @@ class SessionCache : public ThreadSafeRefCountedBase<SessionCache> {
   CompletionSink sink;
   std::vector<Completion *> sortedCompletions;
   CompletionKind completionKind;
+  bool completionHasExpectedTypes;
+  FilterRules filterRules;
   llvm::sys::Mutex mtx;
 
 public:
   SessionCache(CompletionSink &&sink,
                std::unique_ptr<llvm::MemoryBuffer> &&buffer,
-               std::vector<std::string> &&args, CompletionKind completionKind)
+               std::vector<std::string> &&args, CompletionKind completionKind,
+               bool hasExpectedTypes, FilterRules filterRules)
       : buffer(std::move(buffer)), args(std::move(args)), sink(std::move(sink)),
-        completionKind(completionKind) {}
+        completionKind(completionKind),
+        completionHasExpectedTypes(hasExpectedTypes),
+        filterRules(std::move(filterRules)) {}
   void setSortedCompletions(std::vector<Completion *> &&completions);
   ArrayRef<Completion *> getSortedCompletions();
   llvm::MemoryBuffer *getBuffer();
   ArrayRef<std::string> getCompilerArgs();
+  const FilterRules &getFilterRules();
   CompletionKind getCompletionKind();
+  bool getCompletionHasExpectedTypes();
 };
 typedef RefPtr<SessionCache> SessionCacheRef;
 
@@ -256,6 +263,17 @@ public:
                                swift::AccessorKind AccKind,
                                llvm::raw_ostream &OS);
 
+  /// Annotates a declaration with XML tags that describe the key substructure
+  /// of the declaration for CursorInfo/DocInfo.
+  ///
+  /// Prints declarations with decl- and type-specific tags derived from the
+  /// UIDs used for decl/refs.
+  ///
+  /// FIXME: This move to libIDE, but currently depends on the UIdentVisitor.
+  static void printFullyAnnotatedDeclaration(const swift::ValueDecl *VD,
+                                             swift::Type BaseTy,
+                                             llvm::raw_ostream &OS);
+
   /// Tries to resolve the path to the real file-system path. If it fails it
   /// returns the original path;
   static std::string resolvePathSymlinks(StringRef FilePath);
@@ -272,8 +290,8 @@ public:
                     ArrayRef<const char *> Args) override;
 
   void codeCompleteOpen(StringRef name, llvm::MemoryBuffer *inputBuf,
-                        unsigned offset,
-                        OptionsDictionary *options,
+                        unsigned offset, OptionsDictionary *options,
+                        ArrayRef<FilterRule> rawFilterRules,
                         GroupedCodeCompletionConsumer &consumer,
                         ArrayRef<const char *> args) override;
 
@@ -299,12 +317,15 @@ public:
   void editorOpenInterface(EditorConsumer &Consumer,
                            StringRef Name,
                            StringRef ModuleName,
-                           ArrayRef<const char *> Args) override;
+                           Optional<StringRef> Group,
+                           ArrayRef<const char *> Args,
+                           bool SynthesizedExtensions) override;
 
   void editorOpenHeaderInterface(EditorConsumer &Consumer,
                                  StringRef Name,
                                  StringRef HeaderName,
-                                 ArrayRef<const char *> Args) override;
+                                 ArrayRef<const char *> Args,
+                                 bool SynthesizedExtensions) override;
 
   void editorOpenSwiftSourceInterface(StringRef Name,
                                       StringRef SourceName,
@@ -347,6 +368,9 @@ public:
 
   void findInterfaceDocument(StringRef ModuleName, ArrayRef<const char *> Args,
                std::function<void(const InterfaceDocInfo &)> Receiver) override;
+
+  void findModuleGroups(StringRef ModuleName, ArrayRef<const char *> Args,
+               std::function<void(ArrayRef<StringRef>, StringRef Error)> Receiver) override;
 };
 
 namespace trace {

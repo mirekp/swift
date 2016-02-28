@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -14,7 +14,7 @@
 /// `_ArrayBufferType`.  This buffer does not provide value semantics.
 public protocol _ArrayBufferType : MutableCollectionType {
   /// The type of elements stored in the buffer.
-  typealias Element
+  associatedtype Element
 
   /// Create an empty buffer.
   init()
@@ -30,12 +30,12 @@ public protocol _ArrayBufferType : MutableCollectionType {
   ) -> UnsafeMutablePointer<Element>
 
   /// Get or set the index'th element.
-  subscript(index: Int) -> Element { get nonmutating set}
+  subscript(index: Int) -> Element { get nonmutating set }
 
   /// If this buffer is backed by a uniquely-referenced mutable
   /// `_ContiguousArrayBuffer` that can be grown in-place to allow the `self`
   /// buffer store `minimumCapacity` elements, returns that buffer.
-  /// Otherwise, returns nil.
+  /// Otherwise, returns `nil`.
   ///
   /// - Note: The result's firstElementAddress may not match ours, if we are a
   ///   _SliceBuffer.
@@ -47,7 +47,7 @@ public protocol _ArrayBufferType : MutableCollectionType {
   mutating func requestUniqueMutableBackingBuffer(minimumCapacity: Int)
     -> _ContiguousArrayBuffer<Element>?
 
-  /// Returns true iff this buffer is backed by a uniquely-referenced mutable
+  /// Returns `true` iff this buffer is backed by a uniquely-referenced mutable
   /// _ContiguousArrayBuffer.
   ///
   /// - Note: This function must remain mutating; otherwise the buffer
@@ -73,7 +73,7 @@ public protocol _ArrayBufferType : MutableCollectionType {
 
   /// Returns a `_SliceBuffer` containing the given `subRange` of values
   /// from this buffer.
-  subscript(subRange: Range<Int>) -> _SliceBuffer<Element> {get}
+  subscript(subRange: Range<Int>) -> _SliceBuffer<Element> { get }
 
   /// Call `body(p)`, where `p` is an `UnsafeBufferPointer` over the
   /// underlying contiguous storage.  If no such storage exists, it is
@@ -91,34 +91,34 @@ public protocol _ArrayBufferType : MutableCollectionType {
   ) rethrows -> R
 
   /// The number of elements the buffer stores.
-  var count: Int {get set}
+  var count: Int { get set }
 
   /// The number of elements the buffer can store without reallocation.
-  var capacity: Int {get}
+  var capacity: Int { get }
 
   /// An object that keeps the elements stored in this buffer alive.
-  var owner: AnyObject {get}
+  var owner: AnyObject { get }
 
   /// If the elements are stored contiguously, a pointer to the first
   /// element. Otherwise, `nil`.
-  var firstElementAddress: UnsafeMutablePointer<Element> {get}
+  var firstElementAddress: UnsafeMutablePointer<Element> { get }
 
-  /// Return a base address to which you can add an index `i` to get the address
-  /// of the corresponding element at `i`.
-  var subscriptBaseAddress: UnsafeMutablePointer<Element> {get}
+  /// Returns a base address to which you can add an index `i` to get the 
+  /// address of the corresponding element at `i`.
+  var subscriptBaseAddress: UnsafeMutablePointer<Element> { get }
 
   /// Like `subscriptBaseAddress`, but can assume that `self` is a mutable,
   /// uniquely referenced native representation.
   /// - Precondition: `_isNative` is `true`.
   var _unconditionalMutableSubscriptBaseAddress:
-    UnsafeMutablePointer<Element> {get}
+    UnsafeMutablePointer<Element> { get }
 
   /// A value that identifies the storage used by the buffer.  Two
   /// buffers address the same elements when they have the same
   /// identity and count.
-  var identity: UnsafePointer<Void> {get}
+  var identity: UnsafePointer<Void> { get }
 
-  var startIndex: Int {get}
+  var startIndex: Int { get }
 }
 
 extension _ArrayBufferType {
@@ -159,11 +159,13 @@ extension _ArrayBufferType {
       // Assign over the original subRange
       var i = newValues.startIndex
       for j in subRange {
-        elements[j] = newValues[i++]
+        elements[j] = newValues[i]
+        i._successorInPlace()
       }
       // Initialize the hole left by sliding the tail forward
       for j in oldTailIndex..<newTailIndex {
-        (elements + j).initialize(newValues[i++])
+        (elements + j).initialize(newValues[i])
+        i._successorInPlace()
       }
       _expectEnd(i, newValues)
     }
@@ -172,7 +174,9 @@ extension _ArrayBufferType {
       var i = subRange.startIndex
       var j = newValues.startIndex
       for _ in 0..<newCount {
-        elements[i++] = newValues[j++]
+        elements[i] = newValues[j]
+        i._successorInPlace()
+        j._successorInPlace()
       }
       _expectEnd(j, newValues)
 
@@ -189,15 +193,15 @@ extension _ArrayBufferType {
         // part of the tail.
         newTailStart.moveAssignFrom(oldTailStart, count: shrinkage)
 
-        //  slide the rest of the tail back
+        // Slide the rest of the tail back
         oldTailStart.moveInitializeFrom(
           oldTailStart + shrinkage, count: tailCount - shrinkage)
       }
-      else {                      // tail fits within erased elements
+      else {                      // Tail fits within erased elements
         // Assign over the start of the replaced range with the tail
         newTailStart.moveAssignFrom(oldTailStart, count: tailCount)
 
-        // destroy elements remaining after the tail in subRange
+        // Destroy elements remaining after the tail in subRange
         (newTailStart + tailCount).destroy(shrinkage - tailCount)
       }
     }

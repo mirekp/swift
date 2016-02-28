@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -13,9 +13,9 @@
 extension String {
   /// A collection of UTF-16 code units that encodes a `String` value.
   public struct UTF16View
-    : CollectionType, _Reflectable, CustomStringConvertible,
-    CustomDebugStringConvertible {
+    : CollectionType, CustomStringConvertible, CustomDebugStringConvertible {
 
+    /// A position in a string's collection of UTF-16 code units.
     public struct Index {
       // Foundation needs access to these fields so it can expose
       // random access
@@ -120,12 +120,6 @@ extension String {
       self._offset = offset
       self._length = length
       self._core = _core
-    }
-
-    /// Returns a mirror that reflects `self`.
-    @warn_unused_result
-    public func _getMirror() -> _MirrorType {
-      return _UTF16ViewMirror(self)
     }
 
     public var description: String {
@@ -270,7 +264,7 @@ extension String.UTF16View.Index {
     _offset = characterIndex._utf16Index
   }
 
-  /// Return the position in `utf8` that corresponds exactly
+  /// Returns the position in `utf8` that corresponds exactly
   /// to `self`, or if no such position exists, `nil`.
   ///
   /// - Requires: `self` is an element of
@@ -282,7 +276,7 @@ extension String.UTF16View.Index {
     return String.UTF8View.Index(self, within: utf8)
   }
 
-  /// Return the position in `unicodeScalars` that corresponds exactly
+  /// Returns the position in `unicodeScalars` that corresponds exactly
   /// to `self`, or if no such position exists, `nil`.
   ///
   /// - Requires: `self` is an element of
@@ -294,7 +288,7 @@ extension String.UTF16View.Index {
     return String.UnicodeScalarIndex(self, within: unicodeScalars)
   }
 
-  /// Return the position in `characters` that corresponds exactly
+  /// Returns the position in `characters` that corresponds exactly
   /// to `self`, or if no such position exists, `nil`.
   ///
   /// - Requires: `self` is an element of `characters.utf16.indices`.
@@ -303,5 +297,20 @@ extension String.UTF16View.Index {
     characters: String
   ) -> String.Index? {
     return String.Index(self, within: characters)
+  }
+}
+
+// Reflection
+extension String.UTF16View : CustomReflectable {
+  /// Returns a mirror that reflects `self`.
+  @warn_unused_result
+  public func customMirror() -> Mirror {
+    return Mirror(self, unlabeledChildren: self)
+  }
+}
+
+extension String.UTF16View : CustomPlaygroundQuickLookable {
+  public func customPlaygroundQuickLook() -> PlaygroundQuickLook {
+    return .Text(description)
   }
 }

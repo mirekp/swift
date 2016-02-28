@@ -1,8 +1,8 @@
-//===--- Filter.swift -----------------------------------------*- swift -*-===//
+//===--- Filter.swift -----------------------------------------------------===//
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -25,20 +25,19 @@ public struct LazyFilterGenerator<
   ///   since the copy was made, and no preceding call to `self.next()`
   ///   has returned `nil`.
   public mutating func next() -> Base.Element? {
-    var n: Base.Element?
-    for/*ever*/;; {
-      n = _base.next()
-      if n != nil ? _predicate(n!) : true {
+    while let n = _base.next() {
+      if _predicate(n) {
         return n
       }
     }
+    return nil
   }
 
   /// Creates an instance that produces the elements `x` of `base`
   /// for which `predicate(x) == true`.
   public init(
     _ base: Base,
-    whereElementsSatisfy predicate: (Base.Element)->Bool
+    whereElementsSatisfy predicate: (Base.Element) -> Bool
   ) {
     self._base = base
     self._predicate = predicate
@@ -51,7 +50,7 @@ public struct LazyFilterGenerator<
   
   /// The predicate used to determine which elements produced by
   /// `base` are also produced by `self`.
-  internal var _predicate: (Base.Element)->Bool
+  internal let _predicate: (Base.Element) -> Bool
 }
 
 /// A sequence whose elements consist of the elements of some base
@@ -62,7 +61,7 @@ public struct LazyFilterGenerator<
 public struct LazyFilterSequence<Base : SequenceType>
   : LazySequenceType {
   
-  /// Return a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> LazyFilterGenerator<Base.Generator> {
@@ -74,7 +73,7 @@ public struct LazyFilterSequence<Base : SequenceType>
   /// which `predicate(x) == true`.
   public init(
     _ base: Base,
-    whereElementsSatisfy predicate: (Base.Generator.Element)->Bool
+    whereElementsSatisfy predicate: (Base.Generator.Element) -> Bool
   ) {
     self.base = base
     self._include = predicate
@@ -85,7 +84,7 @@ public struct LazyFilterSequence<Base : SequenceType>
 
   /// The predicate used to determine which elements of `base` are
   /// also elements of `self`.
-  internal let _include: (Base.Generator.Element)->Bool
+  internal let _include: (Base.Generator.Element) -> Bool
 }
 
 /// The `Index` used for subscripting a `LazyFilterCollection`.
@@ -131,7 +130,7 @@ public struct LazyFilterIndex<
 
   /// The predicate used to determine which elements of `base` are
   /// also elements of `self`.
-  internal let _include: (BaseElements.Generator.Element)->Bool
+  internal let _include: (BaseElements.Generator.Element) -> Bool
 
   @available(*, unavailable, renamed="BaseElements")
   public typealias Base = BaseElements
@@ -149,12 +148,12 @@ public func == <Base : CollectionType>(
 /// A lazy `CollectionType` wrapper that includes the elements of an
 /// underlying collection that satisfy a predicate.
 ///
-/// - Note: The performance of advancing a `LazyFilterIndex`
-///   depends on how sparsely the filtering predicate is satisfied,
-///   and may not offer the usual performance given by models of
-///   `ForwardIndexType`.  Be aware, therefore, that general operations
-///   on `LazyFilterCollection` instances may not have the
-///   documented complexity.
+/// - Note: The performance of accessing `startIndex`, `first`, any methods
+///   that depend on `startIndex`, or of advancing a `LazyFilterIndex` depends
+///   on how sparsely the filtering predicate is satisfied, and may not offer
+///   the usual performance given by `CollectionType` or `ForwardIndexType`. Be
+///   aware, therefore, that general operations on `LazyFilterCollection`
+///   instances may not have the documented complexity.
 public struct LazyFilterCollection<
   Base : CollectionType
 > : LazyCollectionType {
@@ -169,7 +168,7 @@ public struct LazyFilterCollection<
   /// satisfy `predicate`.
   public init(
     _ base: Base,
-    whereElementsSatisfy predicate: (Base.Generator.Element)->Bool
+    whereElementsSatisfy predicate: (Base.Generator.Element) -> Bool
   ) {
     self._base = base
     self._predicate = predicate
@@ -187,7 +186,7 @@ public struct LazyFilterCollection<
       if _predicate(_base[first]) {
         break
       }
-      ++first
+      first._successorInPlace()
     }
     return LazyFilterIndex(
       _baseElements: _base, base: first, _include: _predicate)
@@ -213,7 +212,7 @@ public struct LazyFilterCollection<
     return _base[position.base]
   }
 
-  /// Return a *generator* over the elements of this *sequence*.
+  /// Returns a generator over the elements of this sequence.
   ///
   /// - Complexity: O(1).
   public func generate() -> LazyFilterGenerator<Base.Generator> {
@@ -222,11 +221,11 @@ public struct LazyFilterCollection<
   }
 
   var _base: Base
-  var _predicate: (Base.Generator.Element)->Bool
+  let _predicate: (Base.Generator.Element) -> Bool
 }
 
 extension LazySequenceType {
-  /// Return the elements of `self` that satisfy `predicate`.
+  /// Returns the elements of `self` that satisfy `predicate`.
   ///
   /// - Note: The elements of the result are computed on-demand, as
   ///   the result is used. No buffering storage is allocated and each
@@ -234,7 +233,7 @@ extension LazySequenceType {
   ///   elements.
   @warn_unused_result
   public func filter(
-    predicate: (Elements.Generator.Element)->Bool
+    predicate: (Elements.Generator.Element) -> Bool
   ) -> LazyFilterSequence<Self.Elements> {
     return LazyFilterSequence(
       self.elements, whereElementsSatisfy: predicate)
@@ -242,7 +241,7 @@ extension LazySequenceType {
 }
 
 extension LazyCollectionType {
-  /// Return the elements of `self` that satisfy `predicate`.
+  /// Returns the elements of `self` that satisfy `predicate`.
   ///
   /// - Note: The elements of the result are computed on-demand, as
   ///   the result is used. No buffering storage is allocated and each
@@ -250,14 +249,14 @@ extension LazyCollectionType {
   ///   elements.
   @warn_unused_result
   public func filter(
-    predicate: (Elements.Generator.Element)->Bool
+    predicate: (Elements.Generator.Element) -> Bool
   ) -> LazyFilterCollection<Self.Elements> {
     return LazyFilterCollection(
       self.elements, whereElementsSatisfy: predicate)
   }
 }
 
-/// Return an `Array` containing the elements of `source`,
+/// Returns an `Array` containing the elements of `source`,
 /// in order, that satisfy the predicate `includeElement`.
 @available(*, unavailable, message="call the 'filter()' method on the sequence")
 public func filter<S : SequenceType>(

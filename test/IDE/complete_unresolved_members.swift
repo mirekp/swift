@@ -49,7 +49,7 @@ enum SomeEnum3 {
 }
 
 struct NotOptions1 {
-  static let NotSet = 1;
+  static let NotSet = 1
 }
 
 struct SomeOptions1 : OptionSetType {
@@ -118,7 +118,6 @@ class C2 {
 // UNRESOLVED_1-DAG:  Decl[StaticVar]/CurrNominal: Option1[#SomeOptions1#]; name=Option1
 // UNRESOLVED_1-DAG:  Decl[StaticVar]/CurrNominal: Option2[#SomeOptions1#]; name=Option2
 // UNRESOLVED_1-DAG:  Decl[StaticVar]/CurrNominal: Option3[#SomeOptions1#]; name=Option3
-// UNRESOLVED_1-NOT:  SomeOptions2
 // UNRESOLVED_1-NOT:  Not
 }
 
@@ -135,7 +134,6 @@ class C3 {
 // UNRESOLVED_2-DAG:  Decl[StaticVar]/CurrNominal: Option4[#SomeOptions2#]; name=Option4
 // UNRESOLVED_2-DAG:  Decl[StaticVar]/CurrNominal: Option5[#SomeOptions2#]; name=Option5
 // UNRESOLVED_2-DAG:  Decl[StaticVar]/CurrNominal: Option6[#SomeOptions2#]; name=Option6
-// UNRESOLVED_2-NOT:  SomeOptions1
 // UNRESOLVED_2-NOT:  Not
 }
 
@@ -154,7 +152,6 @@ class C4 {
 // UNRESOLVED_3: Begin completions
 // UNRESOLVED_3-DAG: Decl[EnumElement]/ExprSpecific:     North[#SomeEnum1#]; name=North
 // UNRESOLVED_3-DAG: Decl[EnumElement]/ExprSpecific:     South[#SomeEnum1#]; name=South
-// UNRESOLVED_3-NOT: SomeEnum2
 // UNRESOLVED_3-NOT: SomeOptions1
 // UNRESOLVED_3-NOT: SomeOptions2
 
@@ -178,7 +175,7 @@ OptionSetTaker6(.Option4, .#^UNRESOLVED_17^#,)
 var a = {() in
   OptionSetTaker5([.#^UNRESOLVED_18^#], .Option4, .South, .West)
 }
-var Containner = OptionTakerContainer1()
+var Container = OptionTakerContainer1()
 Container.OptionSetTaker1(.#^UNRESOLVED_19^#
 Container.EnumTaker1(.#^UNRESOLVED_20^#
 

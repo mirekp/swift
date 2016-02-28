@@ -5,8 +5,19 @@
 // RUN: %S/../../utils/line-directive %t/CollectionType.swift -- %target-run %t/a.out
 // REQUIRES: executable_test
 
+// <rdar://problem/24357067> The compiler never finishes compiling validation-test/stdlib/CollectionType.swift.gyb in -O
+// REQUIRES: swift_test_mode_optimize_none
+
 import StdlibUnittest
+import StdlibCollectionUnittest
 import SwiftPrivate
+
+// Also import modules which are used by StdlibUnittest internally. This
+// workaround is needed to link all required libraries in case we compile
+// StdlibUnittest with -sil-serialize-all.
+#if _runtime(_ObjC)
+import ObjectiveC
+#endif
 
 var CollectionTypeTests = TestSuite("CollectionType")
 
@@ -89,7 +100,7 @@ struct MinimalForwardCollectionWith${Implementation}Filter<Element>
   func filter(
     @noescape transform: (Element) throws -> Bool
   ) rethrows -> [Element] {
-    ++MinimalForwardCollectionWithCustomFilter.timesFilterWasCalled
+    MinimalForwardCollectionWithCustomFilter.timesFilterWasCalled += 1
     return try _data.filter(transform)
   }
 
@@ -149,7 +160,7 @@ CollectionTypeTests.test("filter/CollectionType/${Implementation}Implementation/
       var result = call${dispatch}CollectionFilter(s) {
         (element) in
         _blackHole(closureLifetimeTracker)
-        ++timesClosureWasCalled
+        timesClosureWasCalled += 1
         return test.includeElement(element.value)
       }
       expectType([OpaqueValue<Int>].self, &result)
@@ -221,7 +232,7 @@ struct MinimalForwardCollectionWith${Implementation}Map<Element>
   func map<T>(
     @noescape transform: (Element) throws -> T
   ) rethrows -> [T] {
-    ++MinimalForwardCollectionWithCustomMap.timesMapWasCalled
+    MinimalForwardCollectionWithCustomMap.timesMapWasCalled += 1
     return try _data.map(transform)
   }
 
@@ -287,7 +298,7 @@ CollectionTypeTests.test(
       var result = call${dispatch}CollectionMap(s) {
         (element: OpaqueValue<Int>) -> OpaqueValue<Int32> in
         _blackHole(closureLifetimeTracker)
-        ++timesClosureWasCalled
+        timesClosureWasCalled += 1
         return OpaqueValue(Int32(test.transform(element.value)))
       }
       expectType([OpaqueValue<Int32>].self, &result)
@@ -324,11 +335,11 @@ ${LazyFlatMapTest}
 //===----------------------------------------------------------------------===//
 
 CollectionTypeTests.test("underestimateCount/CollectionType/DefaultImplementation") {
-  if true {
+  do {
     let s = CollectionWithDefaultUnderestimateCount(count: 0)
     expectEqual(0, callGenericUnderestimatedCount(s))
   }
-  if true {
+  do {
     let s = CollectionWithDefaultUnderestimateCount(count: 5)
     expectEqual(5, callGenericUnderestimatedCount(s))
   }
@@ -368,11 +379,11 @@ struct CollectionWithCustomUnderestimateCount : CollectionType {
 }
 
 CollectionTypeTests.test("underestimateCount/CollectionType/CustomImplementation") {
-  if true {
+  do {
     let s = CollectionWithCustomUnderestimateCount(underestimatedCount: 0)
     expectEqual(0, callGenericUnderestimatedCount(s))
   }
-  if true {
+  do {
     let s = CollectionWithCustomUnderestimateCount(underestimatedCount: 5)
     expectEqual(5, callGenericUnderestimatedCount(s))
   }
@@ -411,7 +422,7 @@ CollectionTypeTests.test("CollectionType.generate()/DefaultImplementation") {
   for count in [ 0, 5 ] {
     let collection = MinimalForwardCollectionWithDefaultGenerator(count: count)
 
-    if true {
+    do {
       // Check the return type of the function when called statically.
       var generator = collection.generate()
       expectType(
@@ -419,7 +430,7 @@ CollectionTypeTests.test("CollectionType.generate()/DefaultImplementation") {
         &generator)
     }
 
-    if true {
+    do {
       // Check the return type of the function when called generically.
       var generator = callGenericGenerate(collection)
       expectType(
@@ -442,7 +453,7 @@ struct MinimalForwardCollectionWithCustomGenerator : CollectionType {
   static var timesGenerateWasCalled: Int = 0
 
   func generate() -> MinimalGenerator<OpaqueValue<Int>> {
-    ++MinimalForwardCollectionWithCustomGenerator.timesGenerateWasCalled
+    MinimalForwardCollectionWithCustomGenerator.timesGenerateWasCalled += 1
     return MinimalGenerator<OpaqueValue<Int>>(
       Array(1..<_count+1).map(OpaqueValue.init) as [OpaqueValue<Int>]
     )
@@ -468,7 +479,7 @@ CollectionTypeTests.test("CollectionType.generate()/CustomImplementation") {
   for count in [ 0, 5 ] {
     let collection = MinimalForwardCollectionWithCustomGenerator(count: count)
 
-    if true {
+    do {
       // Check the return type of the function when called statically.
       MinimalForwardCollectionWithCustomGenerator.timesGenerateWasCalled = 0
       var generator = collection.generate()
@@ -478,7 +489,7 @@ CollectionTypeTests.test("CollectionType.generate()/CustomImplementation") {
       expectEqual(1, MinimalForwardCollectionWithCustomGenerator.timesGenerateWasCalled)
     }
 
-    if true {
+    do {
       MinimalForwardCollectionWithCustomGenerator.timesGenerateWasCalled = 0
       // Check the return type of the function when called generically.
       var generator = callGenericGenerate(collection)
@@ -719,7 +730,7 @@ CollectionTypeTests.test("_withUnsafeMutableBufferPointerIfSupported/dispatch") 
 %       Base = "%s%s%sCollection" % (base_kind, traversal, 'Mutable' if mutable else '')
 
 // Test collections using value types as elements.
-if true {
+do {
   var checksAdded: Box<Set<String>> = Box([])
   var resiliencyChecks = CollectionMisuseResiliencyChecks.all
   resiliencyChecks.creatingOutOfBoundsIndicesBehavior = .ExpectationFailure
@@ -757,12 +768,13 @@ if true {
     extractValueFromComparable: identityComp,
     checksAdded: checksAdded,
     resiliencyChecks: resiliencyChecks,
-    withUnsafeMutableBufferPointerIsSupported: false)
+    withUnsafeMutableBufferPointerIsSupported: false,
+    isFixedLengthCollection: true)
 %       end
 }
 
 // Test collections using a reference type as element.
-if true {
+do {
   var checksAdded: Box<Set<String>> = Box([])
   var resiliencyChecks = CollectionMisuseResiliencyChecks.all
   resiliencyChecks.creatingOutOfBoundsIndicesBehavior = .ExpectationFailure
@@ -811,7 +823,8 @@ if true {
     extractValueFromComparable: identityComp,
     checksAdded: checksAdded,
     resiliencyChecks: resiliencyChecks,
-    withUnsafeMutableBufferPointerIsSupported: false)
+    withUnsafeMutableBufferPointerIsSupported: false,
+    isFixedLengthCollection: true)
 %       end
 }
 

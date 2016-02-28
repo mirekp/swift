@@ -16,6 +16,11 @@ import SwiftPrivatePthreadExtras
 #if _runtime(_ObjC)
 import ObjectiveC
 #endif
+#if os(OSX) || os(iOS) || os(watchOS) || os(tvOS)
+import Darwin
+#elseif os(Linux)
+import Glibc
+#endif
 
 final class HeapBool {
   var value: Bool
@@ -86,7 +91,7 @@ struct AtomicInt_fetchAndAdd_1_RaceTest : RaceTestWithPerTrialDataType {
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     if raceData.writerStarted.fetchAndAdd(1) == 0 {
       // Writer.
@@ -168,7 +173,7 @@ struct AtomicInt_fetchAndAdd_ReleaseAtomicStores_1_RaceTest
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     // Test release semantics of 'fetchAndAdd' and 'addAndFetch'.
     if raceData.writerStarted.fetchAndAdd(1) == 0 {
@@ -239,7 +244,7 @@ struct AtomicInt_fetchAndAdd_ReleaseAtomicStores_2_RaceTest
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     // Test release semantics of 'fetchAndAdd' and 'addAndFetch'.
     if raceData.writerStarted.fetchAndAdd(1) == 0 {
@@ -326,7 +331,7 @@ struct AtomicInt_fetchAndAdd_ReleaseNonAtomicStores_RaceTest
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     // Test release semantics of 'fetchAndAdd' and 'addAndFetch' with regard to
     // non-atomic stores.
@@ -452,7 +457,7 @@ struct AtomicInt_fetchAndAnd_1_RaceTest : RaceTestWithPerTrialDataType {
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     if raceData.writerStarted.fetchAndAdd(1) == 0 {
       // Writer.
@@ -533,7 +538,7 @@ struct AtomicInt_fetchAndOr_1_RaceTest : RaceTestWithPerTrialDataType {
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     if raceData.writerStarted.fetchAndAdd(1) == 0 {
       // Writer.
@@ -614,7 +619,7 @@ struct AtomicInt_fetchAndXor_1_RaceTest : RaceTestWithPerTrialDataType {
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     if raceData.writerStarted.fetchAndAdd(1) == 0 {
       // Writer.
@@ -721,11 +726,11 @@ struct AtomicInitializeARCRefRaceTest : RaceTestWithPerTrialDataType {
   }
 
   func thread1(
-    raceData: RaceData, inout _ threadLocalData: ThreadLocalData
+    raceData: RaceData, _ threadLocalData: inout ThreadLocalData
   ) -> Observation {
     var observation = Observation4UInt(0, 0, 0, 0)
     var initializerDestroyed = HeapBool(false)
-    if true {
+    do {
       let initializer = DummyObject(
         destroyedFlag: initializerDestroyed,
         randomInt: threadLocalData.randomInt())
@@ -767,10 +772,10 @@ struct AtomicInitializeARCRefRaceTest : RaceTestWithPerTrialDataType {
       switch (observation.data1, observation.data4) {
       case (1, 0):
         // Won race, value not destroyed.
-        ++wonRace
+        wonRace += 1
       case (0, 1):
         // Lost race, value destroyed.
-        ++lostRace
+        lostRace += 1
       default:
         sink(.FailureInteresting(String(observation)))
       }

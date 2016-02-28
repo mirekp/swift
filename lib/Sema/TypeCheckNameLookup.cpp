@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -112,7 +112,7 @@ namespace {
         conformanceOptions |= ConformanceCheckFlags::InExpression;
 
       DeclContext *foundDC = found->getDeclContext();
-      auto foundProto = foundDC->isProtocolOrProtocolExtensionContext();
+      auto foundProto = foundDC->getAsProtocolOrProtocolExtensionContext();
 
       // Determine the nominal type through which we found the
       // declaration.
@@ -124,7 +124,7 @@ namespace {
         if (isa<AbstractFunctionDecl>(baseDC))
           baseDC = baseDC->getParent();
 
-        baseNominal = baseDC->isNominalTypeOrNominalTypeExtensionContext();
+        baseNominal = baseDC->getAsNominalTypeOrNominalTypeExtensionContext();
         assert(baseNominal && "Did not find nominal type");
       } else {
         baseNominal = cast<NominalTypeDecl>(base);
@@ -217,7 +217,7 @@ LookupResult TypeChecker::lookupUnqualified(DeclContext *dc, DeclName name,
     } else {
       auto baseNominal = cast<NominalTypeDecl>(found.getBaseDecl());
       for (auto currentDC = dc; currentDC; currentDC = currentDC->getParent()) {
-        if (currentDC->isNominalTypeOrNominalTypeExtensionContext()
+        if (currentDC->getAsNominalTypeOrNominalTypeExtensionContext()
               == baseNominal) {
           foundInType = currentDC->getDeclaredTypeInContext();
         }
@@ -239,6 +239,8 @@ LookupResult TypeChecker::lookupMember(DeclContext *dc,
     subOptions |= NL_KnownNonCascadingDependency;
   if (options.contains(NameLookupFlags::DynamicLookup))
     subOptions |= NL_DynamicLookup;
+  if (options.contains(NameLookupFlags::IgnoreAccessibility))
+    subOptions |= NL_IgnoreAccessibility;
 
   // Dig out the type that we'll actually be looking into, and determine
   // whether it is a nominal type.
@@ -325,7 +327,9 @@ LookupTypeResult TypeChecker::lookupMemberType(DeclContext *dc,
   if (options.contains(NameLookupFlags::KnownPrivate))
     subOptions |= NL_KnownNonCascadingDependency;
   if (options.contains(NameLookupFlags::ProtocolMembers))
-    subOptions |= NL_ProtocolMembers;    
+    subOptions |= NL_ProtocolMembers;
+  if (options.contains(NameLookupFlags::IgnoreAccessibility))
+    subOptions |= NL_IgnoreAccessibility;
 
   if (!dc->lookupQualified(type, name, subOptions, this, decls))
     return result;

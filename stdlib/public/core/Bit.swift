@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -16,7 +16,7 @@
 
 /// A `RandomAccessIndexType` that has two possible values.  Used as
 /// the `Index` type for `CollectionOfOne<T>`.
-public enum Bit : Int, Comparable, RandomAccessIndexType, _Reflectable {
+public enum Bit : Int, Comparable, RandomAccessIndexType {
 
   public typealias Distance = Int
 
@@ -45,42 +45,6 @@ public enum Bit : Int, Comparable, RandomAccessIndexType, _Reflectable {
   public func advancedBy(n: Distance) -> Bit {
     return rawValue.advancedBy(n) > 0 ? One : Zero
   }
-
-  /// Returns a mirror that reflects `self`.
-  public func _getMirror() -> _MirrorType {
-    return _BitMirror(self)
-  }
-}
-
-internal struct _BitMirror : _MirrorType {
-  let _value: Bit
-
-  init(_ v: Bit) {
-    self._value = v
-  }
-
-  var value: Any { return _value }
-
-  var valueType: Any.Type { return (_value as Any).dynamicType }
-
-  var objectIdentifier: ObjectIdentifier? { return .None }
-
-  var count: Int { return 0 }
-
-  subscript(i: Int) -> (String, _MirrorType) {
-    _preconditionFailure("_MirrorType access out of bounds")
-  }
-
-  var summary: String {
-    switch _value {
-      case .Zero: return ".Zero"
-      case .One:  return ".One"
-    }
-  }
-
-  var quickLookObject: PlaygroundQuickLook? { return .None }
-
-  var disposition: _MirrorDisposition { return .Enum }
 }
 
 @warn_unused_result
@@ -94,16 +58,19 @@ public func < (lhs: Bit, rhs: Bit) -> Bool {
 }
 
 extension Bit : IntegerArithmeticType {
-  static func _withOverflow(v: (Int, overflow: Bool)) -> (Bit, overflow: Bool) {
-    if let b = Bit(rawValue: v.0) {
-      return (b, v.overflow)
-    } else {
-      return (Bit(rawValue: v.0 % 2)!, true)
+  static func _withOverflow(value : (intResult: Int, overflow: Bool)
+  ) -> (Bit, overflow: Bool) {
+    if let bit = Bit(rawValue: value.intResult) {
+      return (bit, overflow: value.overflow)
     }
+
+    let bitRaw = value.intResult % 2 + (value.intResult < 0 ? 2 : 0)
+    let bit = Bit(rawValue: bitRaw)!
+    return (bit, overflow: true)
   }
 
   /// Add `lhs` and `rhs`, returning a result and a `Bool` that is
-  /// true iff the operation caused an arithmetic overflow.
+  /// `true` iff the operation caused an arithmetic overflow.
   public static func addWithOverflow(
     lhs: Bit, _ rhs: Bit
   ) -> (Bit, overflow: Bool) {
@@ -111,7 +78,7 @@ extension Bit : IntegerArithmeticType {
   }
 
   /// Subtract `lhs` and `rhs`, returning a result and a `Bool` that is
-  /// true iff the operation caused an arithmetic overflow.
+  /// `true` iff the operation caused an arithmetic overflow.
   public static func subtractWithOverflow(
     lhs: Bit, _ rhs: Bit
   ) -> (Bit, overflow: Bool) {
@@ -119,7 +86,7 @@ extension Bit : IntegerArithmeticType {
   }
 
   /// Multiply `lhs` and `rhs`, returning a result and a `Bool` that is
-  /// true iff the operation caused an arithmetic overflow.
+  /// `true` iff the operation caused an arithmetic overflow.
   public static func multiplyWithOverflow(
     lhs: Bit, _ rhs: Bit
   ) -> (Bit, overflow: Bool) {
@@ -127,7 +94,7 @@ extension Bit : IntegerArithmeticType {
   }
 
   /// Divide `lhs` and `rhs`, returning a result and a `Bool` that is
-  /// true iff the operation caused an arithmetic overflow.
+  /// `true` iff the operation caused an arithmetic overflow.
   public static func divideWithOverflow(
     lhs: Bit, _ rhs: Bit
   ) -> (Bit, overflow: Bool) {
@@ -135,7 +102,7 @@ extension Bit : IntegerArithmeticType {
   }
 
   /// Divide `lhs` and `rhs`, returning the remainder and a `Bool` that is
-  /// true iff the operation caused an arithmetic overflow.
+  /// `true` iff the operation caused an arithmetic overflow.
   public static func remainderWithOverflow(
     lhs: Bit, _ rhs: Bit
   ) -> (Bit, overflow: Bool) {

@@ -15,7 +15,8 @@
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=COND_WHILE_3 | FileCheck %s -check-prefix=COND_COMMON
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=COND_WHILE_4 | FileCheck %s -check-prefix=COND_COMMON
 
-// RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=COND_DO_WHILE_1 | FileCheck %s -check-prefix=COND_COMMON
+// RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=COND_DO_WHILE_1 | FileCheck %s -check-prefix=COND-WITH-RELATION
+// RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=COND_DO_WHILE_2 | FileCheck %s -check-prefix=COND-WITH-RELATION1
 
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=C_STYLE_FOR_INIT_1 | FileCheck %s -check-prefix=COND_COMMON
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=C_STYLE_FOR_INIT_2 | FileCheck %s -check-prefix=COND_COMMON
@@ -119,6 +120,8 @@
 struct FooStruct {
   var instanceVar : Int
   init(_: Int = 0) { }
+  func boolGen() -> Bool { return false }
+  func intGen() -> Int { return 1 }
 }
 
 func testIf1(fooObject: FooStruct) {
@@ -226,6 +229,13 @@ func testRepeatWhile1(fooObject: FooStruct) {
   var localFooObject = FooStruct(localInt)
   repeat {
   } while #^COND_DO_WHILE_1^#
+}
+
+func testRepeatWhile2(fooObject: FooStruct) {
+  var localInt = 42
+  var localFooObject = FooStruct(localInt)
+  repeat {
+  } while localFooObject.#^COND_DO_WHILE_2^#
 }
 
 func testCStyleForInit1(fooObject: FooStruct) {
@@ -427,7 +437,7 @@ func testSwitchCaseWhereExprI1(fooObject: FooStruct) {
   var localInt = 42
   var localFooObject = FooStruct(localInt)
   switch (0, 42) {
-    case (let i, 0) where #^SWITCH_CASE_WHERE_EXPR_I_1^#
+    case (var i, 0) where #^SWITCH_CASE_WHERE_EXPR_I_1^#
   }
 }
 
@@ -435,7 +445,7 @@ func testSwitchCaseWhereExprI2(fooObject: FooStruct) {
   var localInt = 42
   var localFooObject = FooStruct(localInt)
   switch (0, 42) {
-    case (0, let i) where #^SWITCH_CASE_WHERE_EXPR_I_2^#
+    case (0, var i) where #^SWITCH_CASE_WHERE_EXPR_I_2^#
   }
 }
 
@@ -443,7 +453,7 @@ func testSwitchCaseWhereExprIJ1(fooObject: FooStruct) {
   var localInt = 42
   var localFooObject = FooStruct(localInt)
   switch (0, 42) {
-    case (let i, let j) where #^SWITCH_CASE_WHERE_EXPR_I_J_1^#
+    case (var i, var j) where #^SWITCH_CASE_WHERE_EXPR_I_J_1^#
   }
 }
 
@@ -455,6 +465,24 @@ func testSwitchCaseWhereExprIJ1(fooObject: FooStruct) {
 // COND_COMMON-DAG: Decl[LocalVar]/Local:        localFooObject[#FooStruct#]{{; name=.+$}}
 // COND_COMMON-DAG: Decl[Struct]/CurrModule:     FooStruct[#FooStruct#]{{; name=.+$}}
 // COND_COMMON: End completions
+
+// COND-WITH-RELATION: Begin completions
+// COND-WITH-RELATION-DAG: Literal[Boolean]/None/TypeRelation[Identical]: true[#Bool#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Literal[Boolean]/None/TypeRelation[Identical]: false[#Bool#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[LocalVar]/Local:        fooObject[#FooStruct#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[LocalVar]/Local:        localInt[#Int#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[LocalVar]/Local:        localFooObject[#FooStruct#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[Struct]/CurrModule:     FooStruct[#FooStruct#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[FreeFunction]/CurrModule/TypeRelation[Invalid]: testIf2({#(fooObject): FooStruct#})[#Void#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[FreeFunction]/CurrModule/TypeRelation[Invalid]: testWhile3({#(fooObject): FooStruct#})[#Void#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[FreeFunction]/CurrModule/TypeRelation[Invalid]: testIfElseIf5({#(fooObject): FooStruct#})[#Void#]{{; name=.+$}}
+// COND-WITH-RELATION-DAG: Decl[FreeFunction]/CurrModule/TypeRelation[Invalid]: testCStyleForIncrIE1({#(fooObject): FooStruct#})[#Void#]{{; name=.+$}}
+
+// COND-WITH-RELATION1: Begin completions
+// COND-WITH-RELATION1-DAG: Decl[InstanceVar]/CurrNominal:      instanceVar[#Int#]{{; name=.+$}}
+// COND-WITH-RELATION1-DAG: Decl[InstanceMethod]/CurrNominal/TypeRelation[Identical]: boolGen()[#Bool#]{{; name=.+$}}
+// COND-WITH-RELATION1-DAG: Decl[InstanceMethod]/CurrNominal:   intGen()[#Int#]{{; name=.+$}}
+// COND-WITH-RELATION1: End completions
 
 // WITH_I_INT_LOCAL: Decl[LocalVar]/Local: i[#Int#]{{; name=.+$}}
 

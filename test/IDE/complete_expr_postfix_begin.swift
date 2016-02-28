@@ -2,6 +2,8 @@
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=EXPR_POSTFIX_BEGIN_2 | FileCheck %s -check-prefix=COMMON
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=EXPR_POSTFIX_BEGIN_3 | FileCheck %s -check-prefix=COMMON
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=EXPR_POSTFIX_BEGIN_4 | FileCheck %s -check-prefix=COMMON
+// RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=EXPR_POSTFIX_BEGIN_5 | FileCheck %s -check-prefix=COMMON
+// RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=EXPR_POSTFIX_BEGIN_6 | FileCheck %s -check-prefix=COMMON
 
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=EXPR_POSTFIX_BEGIN_IGNORED_1 | FileCheck %s -check-prefix=COMMON
 // RUN: %target-swift-ide-test -code-completion -source-filename %s -code-completion-token=EXPR_POSTFIX_BEGIN_IGNORED_2 | FileCheck %s -check-prefix=COMMON
@@ -97,10 +99,10 @@ typealias FooTypealias = Int
 // COMMON-DAG: Decl[Struct]/OtherModule[Swift]:    Int32[#Int32#]{{; name=.+$}}
 // COMMON-DAG: Decl[Struct]/OtherModule[Swift]:    Int64[#Int64#]{{; name=.+$}}
 // COMMON-DAG: Decl[Struct]/OtherModule[Swift]:      Bool[#Bool#]{{; name=.+$}}
-// COMMON-DAG: Keyword[__FUNCTION__]/None: __FUNCTION__[#String#]{{; name=.+$}}
-// COMMON-DAG: Keyword[__FILE__]/None: __FILE__[#String#]{{; name=.+$}}
-// COMMON-DAG: Keyword[__LINE__]/None: __LINE__[#Int#]{{; name=.+$}}
-// COMMON-DAG: Keyword[__COLUMN__]/None: __COLUMN__[#Int#]{{; name=.+$}}
+// COMMON-DAG: Keyword[#function]/None: #function[#String#]{{; name=.+$}}
+// COMMON-DAG: Keyword[#file]/None: #file[#String#]{{; name=.+$}}
+// COMMON-DAG: Keyword[#line]/None: #line[#Int#]{{; name=.+$}}
+// COMMON-DAG: Keyword[#column]/None: #column[#Int#]{{; name=.+$}}
 // COMMON: End completions
 
 // NO_SELF-NOT: Self
@@ -125,6 +127,13 @@ func testExprPostfixBegin4(fooParam: FooStruct) {
   "\(#^EXPR_POSTFIX_BEGIN_4^#)"
 }
 
+func testExprPostfixBegin3(fooParam: FooStruct) {
+  1+#^EXPR_POSTFIX_BEGIN_5^#
+}
+func testExprPostfixBegin3(fooParam: FooStruct) {
+  for i in 1...#^EXPR_POSTFIX_BEGIN_6^#
+}
+
 //===--- Test that we sometimes ignore the expr-postfix.
 // In these cases, displaying '.instance*' completion results is technically
 // valid, but would be extremely surprising.
@@ -147,7 +156,7 @@ func testExprPostfixBeginIgnored3(fooParam: FooStruct) {
 
 //===--- Test that we include function parameters in completion results.
 
-func testFindFuncParam1(fooParam: FooStruct, a: Int, b: Float, inout c: Double)(inout d: Double) {
+func testFindFuncParam1(fooParam: FooStruct, a: Int, b: Float, c: inout Double)(d: inout Double) {
   #^FIND_FUNC_PARAM_1^#
 // FIND_FUNC_PARAM_1: Begin completions
 // FIND_FUNC_PARAM_1-DAG: Decl[LocalVar]/Local: a[#Int#]{{; name=.+$}}
@@ -223,7 +232,7 @@ class TestFindFuncParam7 {
   }
 }
 
-func testFindFuncParamSelector1(a: Int, b x: Float, foo fooParam: FooStruct, inout bar barParam: FooStruct) {
+func testFindFuncParamSelector1(a: Int, b x: Float, foo fooParam: FooStruct, bar barParam: inout FooStruct) {
   #^FIND_FUNC_PARAM_SELECTOR_1^#
 // FIND_FUNC_PARAM_SELECTOR_1: Begin completions
 // FIND_FUNC_PARAM_SELECTOR_1-DAG: Decl[LocalVar]/Local: a[#Int#]{{; name=.+$}}

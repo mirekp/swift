@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -125,6 +125,9 @@ public:
   /// The path to output swift interface files for the compiled source files.
   std::string DumpAPIPath;
 
+  /// The path to collect the group information for the compiled source files.
+  std::string GroupInfoPath;
+
   enum ActionType {
     NoneAction, ///< No specific action
     Parse, ///< Parse and type-check only
@@ -166,6 +169,12 @@ public:
   /// If set, dumps wall time taken to check each function body to llvm::errs().
   bool DebugTimeFunctionBodies = false;
 
+  /// If set, prints the time taken in each major compilation phase to 
+  /// llvm::errs().
+  ///
+  /// \sa swift::SharedTimer
+  bool DebugTimeCompilation = false;
+
   /// Indicates whether function body parsing should be delayed
   /// until the end of all files.
   bool DelayedFunctionBodyParsing = false;
@@ -176,8 +185,13 @@ public:
 
   /// Indicates whether we are compiling for testing.
   ///
-  /// \see Module::isTestingEnabled
+  /// \see ModuleDecl::isTestingEnabled
   bool EnableTesting = false;
+
+  /// Indicates whether we are compiling for resilience.
+  ///
+  /// \see ModuleDecl::isResilienceEnabled
+  bool EnableResilience = false;
 
   /// Indicates that the frontend should emit "verbose" SIL
   /// (if asked to emit SIL).

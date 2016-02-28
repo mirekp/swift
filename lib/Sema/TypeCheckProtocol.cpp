@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2014 - 2015 Apple Inc. and the Swift project authors
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -561,37 +561,20 @@ SourceLoc OptionalAdjustment::getOptionalityLoc(ValueDecl *witness) const {
   }
 
   // For parameter adjustments, dig out the pattern.
-  Pattern *pattern = nullptr;
+  ParameterList *params = nullptr;
   if (auto func = dyn_cast<AbstractFunctionDecl>(witness)) {
-    auto bodyPatterns = func->getBodyParamPatterns();
+    auto bodyParamLists = func->getParameterLists();
     if (func->getDeclContext()->isTypeContext())
-      bodyPatterns = bodyPatterns.slice(1);
-    pattern = bodyPatterns[0];
+      bodyParamLists = bodyParamLists.slice(1);
+    params = bodyParamLists[0];
   } else if (auto subscript = dyn_cast<SubscriptDecl>(witness)) {
-    pattern = subscript->getIndices();
+    params = subscript->getIndices();
   } else {
     return SourceLoc();
   }
 
-  // Handle parentheses.
-  if (auto paren = dyn_cast<ParenPattern>(pattern)) {
-    assert(getParameterIndex() == 0 && "just the one parameter");
-    if (auto typed = dyn_cast<TypedPattern>(paren->getSubPattern())) {
-      return getOptionalityLoc(typed->getTypeLoc().getTypeRepr());
-    }
-    return SourceLoc();
-  }
-
-  // Handle tuples.
-  auto tuple = dyn_cast<TuplePattern>(pattern);
-  if (!tuple)
-    return SourceLoc();
-
-  const auto &tupleElt = tuple->getElement(getParameterIndex());
-  if (auto typed = dyn_cast<TypedPattern>(tupleElt.getPattern())) {
-    return getOptionalityLoc(typed->getTypeLoc().getTypeRepr());
-  }
-  return SourceLoc();
+  return getOptionalityLoc(params->get(getParameterIndex())->getTypeLoc()
+                           .getTypeRepr());
 }
 
 SourceLoc OptionalAdjustment::getOptionalityLoc(TypeRepr *tyR) const {
@@ -669,74 +652,26 @@ static SmallVector<TupleTypeElt, 4> decomposeIntoTupleElements(Type type) {
   return result;
 }
 
+/// If the given type is a direct reference to an associated type of
+/// the given protocol, return the referenced associated type.
+static AssociatedTypeDecl *
+getReferencedAssocTypeOfProtocol(Type type, ProtocolDecl *proto) {
+  if (auto dependentMember = type->getAs<DependentMemberType>()) {
+    if (auto genericParam 
+          = dependentMember->getBase()->getAs<GenericTypeParamType>()) {
+      if (genericParam->getDepth() == 0 && genericParam->getIndex() == 0) {
+        if (auto assocType = dependentMember->getAssocType()) {
+          if (assocType->getDeclContext() == proto)
+            return assocType;
+        }
+      }
+    }
+  }
+
+  return nullptr;
+}
+
 namespace {
-  /// Dependent type opener that maps the type of a requirement, replacing
-  /// already-known associated types to their type witnesses and inner generic
-  /// parameters to their archetypes.
-  class RequirementTypeOpener : public constraints::DependentTypeOpener {
-    /// The type variable that represents the 'Self' type.
-    constraints::ConstraintSystem &CS;
-    NormalProtocolConformance *Conformance;
-    DeclContext *DC;
-    ProtocolDecl *Proto;
-
-  public:
-    RequirementTypeOpener(constraints::ConstraintSystem &cs,
-                          NormalProtocolConformance *conformance,
-                          DeclContext *dc)
-      : CS(cs), Conformance(conformance), DC(dc),
-        Proto(conformance->getProtocol())
-    {
-    }
-
-    virtual void openedGenericParameter(GenericTypeParamType *param,
-                                        TypeVariableType *typeVar,
-                                        Type &replacementType) {
-      // If this is the 'Self' type, record it.
-      if (param->getDepth() == 0 && param->getIndex() == 0)
-        CS.SelfTypeVar = typeVar;
-      else
-        replacementType = ArchetypeBuilder::mapTypeIntoContext(DC, param);
-    }
-
-    virtual bool shouldBindAssociatedType(Type baseType,
-                                          TypeVariableType *baseTypeVar,
-                                          AssociatedTypeDecl *assocType,
-                                          TypeVariableType *memberTypeVar,
-                                          Type &replacementType) {
-      // If the base is our 'Self' type, we have a witness for this
-      // associated type already.
-      if (baseTypeVar == CS.SelfTypeVar &&
-          cast<ProtocolDecl>(assocType->getDeclContext()) == Proto) {
-        replacementType = Conformance->getTypeWitness(assocType, nullptr)
-                            .getReplacement();
-
-        // Let the member type variable float; we don't want to
-        // resolve it as a member.
-        return false;
-      }
-
-      // If the base is somehow derived from our 'Self' type, we can go ahead
-      // and bind it. There's nothing more to do.
-      auto rootBaseType = baseType;
-      while (auto dependentMember = rootBaseType->getAs<DependentMemberType>())
-        rootBaseType = dependentMember->getBase();
-      if (auto rootGP = rootBaseType->getAs<GenericTypeParamType>()) {
-        if (rootGP->getDepth() == 0 && rootGP->getIndex() == 0)
-          return true;
-      } else {
-        return true;
-      }
-
-      // We have a dependent member type based on a generic parameter; map it
-      // to an archetype.
-      auto memberType = DependentMemberType::get(baseType, assocType,
-                                                 DC->getASTContext());
-      replacementType = ArchetypeBuilder::mapTypeIntoContext(DC, memberType);
-      return true;
-    }
-  };
-
   /// The kind of variance (none, covariance, contravariance) to apply
   /// when comparing types from a witness to types in the requirement
   /// we're matching it against.
@@ -875,7 +810,8 @@ static bool checkMutating(FuncDecl *requirement, FuncDecl *witness,
   // stored property accessor, it may not be synthesized yet.
   bool witnessMutating;
   if (witness)
-    witnessMutating = witness->isMutating();
+    witnessMutating = (requirement->isInstanceMember() &&
+                       witness->isMutating());
   else {
     assert(requirement->isAccessor());
     auto storage = cast<AbstractStorageDecl>(witnessDecl);
@@ -1241,23 +1177,54 @@ matchWitness(ConformanceChecker &cc, TypeChecker &tc,
                                 /*isTypeReference=*/false,
                                 /*isDynamicResult=*/false,
                                 witnessLocator,
-                                /*base=*/nullptr,
-                                /*opener=*/nullptr);
+                                /*base=*/nullptr);
     }
     openWitnessType = openWitnessType->getRValueType();
     
     // Open up the type of the requirement. We only truly open 'Self' and
     // its associated types (recursively); inner generic type parameters get
     // mapped to their archetypes directly.
-    DeclContext *reqDC = req->getPotentialGenericDeclContext();
-    RequirementTypeOpener reqTypeOpener(*cs, conformance, reqDC);
+    DeclContext *reqDC = req->getInnermostDeclContext();
+    llvm::DenseMap<CanType, TypeVariableType *> replacements;
     std::tie(openedFullReqType, reqType)
       = cs->getTypeOfMemberReference(model, req,
                                      /*isTypeReference=*/false,
                                      /*isDynamicResult=*/false,
                                      locator,
                                      /*base=*/nullptr,
-                                     &reqTypeOpener);
+                                     &replacements);
+
+    // Bind the associated types.
+    auto proto = conformance->getProtocol();
+    for (const auto &replacement : replacements) {
+      if (auto gpType = replacement.first->getAs<GenericTypeParamType>()) {
+        // Record the type variable for 'Self'.
+        if (gpType->getDepth() == 0 && gpType->getIndex() == 0) {
+          cs->SelfTypeVar = replacement.second;
+          continue;
+        }
+        
+        // Replace any other type variable with the archetype within
+        // the requirement's context.
+        cs->addConstraint(ConstraintKind::Bind,
+                          replacement.second,
+                          ArchetypeBuilder::mapTypeIntoContext(reqDC, gpType),
+                          locator);
+
+        continue;
+      }
+
+      // Associated type of 'self'.
+      if (auto assocType = getReferencedAssocTypeOfProtocol(replacement.first,
+                                                            proto)) {
+        cs->addConstraint(ConstraintKind::Bind,
+                          replacement.second,
+                          conformance->getTypeWitness(assocType, nullptr)
+                            .getReplacement(),
+                          locator);
+        continue;
+      }
+    }
     reqType = reqType->getRValueType();
 
     return std::make_tuple(None, reqType, openWitnessType);
@@ -1292,7 +1259,7 @@ matchWitness(ConformanceChecker &cc, TypeChecker &tc,
 
     if (openedFullWitnessType->hasTypeVariable()) {
       // Figure out the context we're substituting into.
-      auto witnessDC = witness->getPotentialGenericDeclContext();
+      auto witnessDC = witness->getInnermostDeclContext();
       
       // Compute the set of substitutions we'll need for the witness.
       solution->computeSubstitutions(witness->getInterfaceType(),
@@ -1399,7 +1366,7 @@ static Type getRequirementTypeForDisplay(TypeChecker &tc, Module *module,
       }
     }
 
-    // Replace 'Self' with the conforming type type.
+    // Replace 'Self' with the conforming type.
     if (type->isEqual(selfTy))
       return conformance->getType();
 
@@ -1538,10 +1505,9 @@ static Substitution getArchetypeSubstitution(TypeChecker &tc,
                                              DeclContext *dc,
                                              ArchetypeType *archetype,
                                              Type replacement) {
-  ArchetypeType *resultArchetype = archetype;
   Type resultReplacement = replacement;
   assert(!resultReplacement->isTypeParameter() && "Can't be dependent");
-  SmallVector<ProtocolConformance *, 4> conformances;
+  SmallVector<ProtocolConformanceRef, 4> conformances;
 
   bool isError = replacement->is<ErrorType>();
   for (auto proto : archetype->getConformsTo()) {
@@ -1552,33 +1518,13 @@ static Substitution getArchetypeSubstitution(TypeChecker &tc,
            "Conformance should already have been verified");
     (void)isError;
     (void)conforms;
-    conformances.push_back(conformance);
+    conformances.push_back(ProtocolConformanceRef(proto, conformance));
   }
 
   return Substitution{
-    resultArchetype,
     resultReplacement,
     tc.Context.AllocateCopy(conformances),
   };
-}
-
-/// If the given type is a direct reference to an associated type of
-/// the given protocol, return the referenced associated type.
-static AssociatedTypeDecl *
-getReferencedAssocTypeOfProtocol(Type type, ProtocolDecl *proto) {
-  if (auto dependentMember = type->getAs<DependentMemberType>()) {
-    if (auto genericParam 
-          = dependentMember->getBase()->getAs<GenericTypeParamType>()) {
-      if (genericParam->getDepth() == 0 && genericParam->getIndex() == 0) {
-        if (auto assocType = dependentMember->getAssocType()) {
-          if (assocType->getDeclContext() == proto)
-            return assocType;
-        }
-      }
-    }
-  }
-
-  return nullptr;
 }
 
 ArrayRef<AssociatedTypeDecl *> 
@@ -1612,21 +1558,22 @@ void ConformanceChecker::recordWitness(ValueDecl *requirement,
     return;
   }
 
-  VersionRange requiredRange = VersionRange::all();
+  auto requiredAvailability = AvailabilityContext::alwaysAvailable();
 
   if (!TC.getLangOpts().DisableAvailabilityChecking &&
       !TC.isAvailabilitySafeForConformance(match.Witness, requirement,
-                                           Conformance, requiredRange)) {
+                                           Conformance, requiredAvailability)) {
     auto witness = match.Witness;
     diagnoseOrDefer(requirement, false,
-      [witness, requirement, requiredRange](
+      [witness, requirement, requiredAvailability](
           TypeChecker &tc, NormalProtocolConformance *conformance) {
+        // FIXME: The problem may not be the OS version.
         tc.diagnose(witness,
                     diag::availability_protocol_requires_version,
                     conformance->getProtocol()->getFullName(),
                     witness->getFullName(),
                     prettyPlatformString(targetPlatform(tc.getLangOpts())),
-                    requiredRange.getLowerEndpoint()
+                    requiredAvailability.getOSVersion().getLowerEndpoint()
                     );
         tc.diagnose(requirement, diag::availability_protocol_requirement_here);
         tc.diagnose(conformance->getLoc(),
@@ -1723,7 +1670,7 @@ void ConformanceChecker::recordTypeWitness(AssociatedTypeDecl *assocType,
   if (fromDC != DC && DC->getGenericSignatureOfContext() &&
       fromDC->getGenericSignatureOfContext() && !isa<ProtocolDecl>(fromDC)) {
     // Map the type to an interface type.
-    type = TC.getInterfaceTypeFromInternalType(fromDC, type);
+    type = ArchetypeBuilder::mapTypeOutOfContext(fromDC, type);
 
     // Map the type into the conformance's context.
     type = Adoptee->getTypeOfMember(DC->getParentModule(), type, fromDC);
@@ -1793,11 +1740,11 @@ void ConformanceChecker::recordTypeWitness(AssociatedTypeDecl *assocType,
       aliasDecl->setInvalid();
     if (metaType->hasArchetype()) {
       aliasDecl->setInterfaceType(
-        TC.getInterfaceTypeFromInternalType(DC, metaType));
+        ArchetypeBuilder::mapTypeOutOfContext(DC, metaType));
     }
     
     // Inject the typealias into the nominal decl that conforms to the protocol.
-    if (auto nominal = DC->isNominalTypeOrNominalTypeExtensionContext()) {
+    if (auto nominal = DC->getAsNominalTypeOrNominalTypeExtensionContext()) {
       TC.computeAccessibility(nominal);
       aliasDecl->setAccessibility(nominal->getFormalAccess());
       if (nominal == DC) {
@@ -1833,12 +1780,13 @@ namespace {
   /// is-inheritable check.
   enum class SelfReferenceKind {
     /// The type does not refer to 'Self' at all.
-    No,
+    None,
     /// The type refers to 'Self', but only as the result type of a method.
     Result,
-    /// The type refers to 'Self' in some position that is not the result type
-    /// of a method.
-    Yes
+    /// The type refers to 'Self', but only as the parameter type of a method.
+    Parameter,
+    /// The type refers to 'Self', and none of the above conditions hold.
+    Other
   };
 }
 
@@ -1857,6 +1805,8 @@ static bool isSelf(Type type) {
 static bool isSelfOrOptionalSelf(Type type) {
   if (auto optType = type->getAnyOptionalObjectType())
     type = optType;
+  if (auto selfType = type->getAs<DynamicSelfType>())
+    type = selfType->getSelfType();
   return isSelf(type);
 }
 
@@ -1887,116 +1837,98 @@ static bool containsSelf(Type type) {
   return selfWalker.FoundSelf;
 }
 
-/// Determine whether the given parameter type involves Self in a manner that
-/// is not contravariant.
-static bool isNonContravariantSelfParamType(Type type) {
-  // 'Self' or an optional thereof will be contravariant in overrides.
+/// Classify usages of Self in the given type.
+static SelfReferenceKind
+findSelfReferences(Type type, SelfReferenceKind selfKind) {
   if (isSelfOrOptionalSelf(type))
-    return false;
+    return selfKind;
 
   // Decompose tuples.
   if (auto tuple = type->getAs<TupleType>()) {
+    auto kind = SelfReferenceKind::None;
     for (auto &elt: tuple->getElements()) {
-      if (isNonContravariantSelfParamType(elt.getType()))
-        return true;
+      auto eltKind = findSelfReferences(elt.getType(), selfKind);
+      // If all non-'No' kinds are equal, return one,
+      // otherwise we have a problematic usage.
+      if (kind == SelfReferenceKind::None)
+        kind = eltKind;
+      else if (eltKind == SelfReferenceKind::None)
+        continue;
+      else if (eltKind != kind)
+        return SelfReferenceKind::Other;
     }
 
-    return false;
+    return kind;
   } 
 
-  // Look into the input type of parameters.
+  // Decompose functions.
   if (auto funcTy = type->getAs<AnyFunctionType>()) {
-    if (isNonContravariantSelfParamType(funcTy->getInput()))
-      return true;
+    // Flip the input type around.
+    auto inputKind = findSelfReferences(funcTy->getInput(),
+                                        (selfKind == SelfReferenceKind::Parameter
+                                         ? SelfReferenceKind::Result
+                                         : SelfReferenceKind::Parameter));
+    auto resultKind = findSelfReferences(funcTy->getResult(), selfKind);
 
-    return containsSelf(funcTy->getResult());
+    // Return a non-'No' value if one of them is 'No' or they're
+    // both equal.
+    if (inputKind == SelfReferenceKind::None)
+      return resultKind;
+    else if (resultKind == SelfReferenceKind::None)
+      return inputKind;
+    else if (inputKind == resultKind)
+      return inputKind;
+
+    // We have a problematic usage.
+    return SelfReferenceKind::Other;
   }
 
-  // If the parameter contains Self, it is not contravariant.
-  return containsSelf(type);
+  // Any other usage is problematic.
+  return (containsSelf(type)
+          ? SelfReferenceKind::Other
+          : SelfReferenceKind::None);
 }
 
-namespace {
-  /// Describes how we should check for Self in the result type of a function.
-  enum class SelfInResultType {
-    /// Check for the Self type normally.
-    Check,
-    /// Ignore Self in the result type.
-    Ignore,
-    /// The result type is known to be a dynamic Self.
-    DynamicSelf,
-  };
-
-}
 /// Find references to Self within the given function type.
-static SelfReferenceKind findSelfReferences(const AnyFunctionType *fnType,
-                                            SelfInResultType inResultType) {
-  // Check whether the input type contains Self in any position where it would
-  // make an override not have contravariant parameter types.
-  if (isNonContravariantSelfParamType(fnType->getInput()))
-    return SelfReferenceKind::Yes;
+static SelfReferenceKind findSelfReferences(const AnyFunctionType *fnType) {
+  // Contravariant 'Self' in the parameter list is always allowed,
+  // because a witness in a non-final class then has a more general
+  // function type than the requirement.
+  auto inputKind = findSelfReferences(fnType->getInput(),
+                                      SelfReferenceKind::Parameter);
+  if (inputKind == SelfReferenceKind::Result ||
+      inputKind == SelfReferenceKind::Other) {
+    return SelfReferenceKind::Other;
+  }
 
   // Consider the result type.
-  auto type = fnType->getResult();
-  switch (inResultType) {
-  case SelfInResultType::DynamicSelf:
-    return SelfReferenceKind::Result;
-
-  case SelfInResultType::Check:
-    return isSelfOrOptionalSelf(type)
-             ? SelfReferenceKind::Result
-             : containsSelf(type) ? SelfReferenceKind::Yes
-                                  : SelfReferenceKind::No;
-
-  case SelfInResultType::Ignore:
-    return SelfReferenceKind::No;
-  }
+  return findSelfReferences(fnType->getResult(),
+                            SelfReferenceKind::Result);
 }
 
 /// Find the bare Self references within the given requirement.
 static SelfReferenceKind findSelfReferences(ValueDecl *value) {
   // Types never refer to 'Self'.
   if (isa<TypeDecl>(value))
-    return SelfReferenceKind::No;
-
-  // If the function requirement returns Self and has no other
-  // reference to Self, note that.
-  if (auto afd = dyn_cast<AbstractFunctionDecl>(value)) {
-    auto type = afd->getInterfaceType();
-
-    // Skip the 'self' type.
-    type = type->castTo<AnyFunctionType>()->getResult();
-
-    // Check first input types. Any further input types are treated as part of
-    // the result type.
-    auto fnType = type->castTo<AnyFunctionType>();
-    return findSelfReferences(fnType,
-                              isa<ConstructorDecl>(afd)
-                                ? SelfInResultType::Ignore
-                                : (isa<FuncDecl>(afd) &&
-                                   cast<FuncDecl>(afd)->hasDynamicSelf())
-                                  ? SelfInResultType::DynamicSelf
-                                  : SelfInResultType::Check);
-  }
+    return SelfReferenceKind::None;
 
   auto type = value->getInterfaceType();
 
+  // If the function requirement returns Self and has no other
+  // reference to Self, note that.
+  if (isa<AbstractFunctionDecl>(value)) {
+    // Skip the 'self' parameter.
+    type = type->castTo<AnyFunctionType>()->getResult();
+    return findSelfReferences(type->castTo<AnyFunctionType>());
+  }
+
   if (isa<SubscriptDecl>(value)) {
     auto fnType = type->castTo<AnyFunctionType>();
-    return findSelfReferences(fnType, SelfInResultType::Check);
+    return findSelfReferences(fnType);
   }
 
-  if (isa<VarDecl>(value)) {
-    type = type->getRValueType();
-    return isSelfOrOptionalSelf(type)
-             ? SelfReferenceKind::Result
-             : containsSelf(type) ? SelfReferenceKind::Yes
-                                  : SelfReferenceKind::No;
-
-  }
-
-  return containsSelf(type) ? SelfReferenceKind::Yes
-                            : SelfReferenceKind::No;
+  return containsSelf(type) ? SelfReferenceKind::Other
+                            : SelfReferenceKind::None;
 }
 
 SmallVector<ValueDecl *, 4> 
@@ -2109,7 +2041,7 @@ ConformanceChecker::resolveWitnessViaLookup(ValueDecl *requirement) {
     }
 
     if (auto *ext = dyn_cast<ExtensionDecl>(match.Witness->getDeclContext()))
-      if (!ext->isConstrainedExtension() && ext->isProtocolExtensionContext())
+      if (!ext->isConstrainedExtension() && ext->getAsProtocolExtensionContext())
         anyFromUnconstrainedExtension = true;
 
     matches.push_back(std::move(match));
@@ -2247,6 +2179,8 @@ ConformanceChecker::resolveWitnessViaLookup(ValueDecl *requirement) {
         if (((classDecl = Adoptee->getClassOrBoundGenericClass()) &&
              !classDecl->isFinal()) &&
             !witnessCtor->isRequired() &&
+            !witnessCtor->getDeclContext()
+               ->getAsProtocolOrProtocolExtensionContext() &&
             !witnessCtor->hasClangNode()) {
           // FIXME: We're not recovering (in the AST), so the Fix-It
           // should move.
@@ -2263,7 +2197,7 @@ ConformanceChecker::resolveWitnessViaLookup(ValueDecl *requirement) {
             });
         }
 
-        // An non-failable initializer requirement cannot be satisfied
+        // A non-failable initializer requirement cannot be satisfied
         // by a failable initializer.
         if (ctor->getFailability() == OTK_None) {
           switch (witnessCtor->getFailability()) {
@@ -2299,11 +2233,11 @@ ConformanceChecker::resolveWitnessViaLookup(ValueDecl *requirement) {
       // Check whether this requirement uses Self in a way that might
       // prevent conformance from succeeding.
       switch (findSelfReferences(requirement)) {
-      case SelfReferenceKind::No:
+      case SelfReferenceKind::None:
         // No references to Self: nothing more to do.
         break;
 
-      case SelfReferenceKind::Yes: {
+      case SelfReferenceKind::Other: {
         // References to Self in a position where subclasses cannot do
         // the right thing. Complain if the adoptee is a non-final
         // class.
@@ -2345,6 +2279,12 @@ ConformanceChecker::resolveWitnessViaLookup(ValueDecl *requirement) {
             break;
           }
 
+          if (isa<ConstructorDecl>(best.Witness)) {
+            // Constructors conceptually also have a dynamic Self
+            // return type, so they're okay.
+            break;
+          }
+
           diagnoseOrDefer(requirement, false,
             [witness, requirement](TypeChecker &tc,
                                    NormalProtocolConformance *conformance) {
@@ -2356,9 +2296,11 @@ ConformanceChecker::resolveWitnessViaLookup(ValueDecl *requirement) {
             });
           break;
         }
-        
         break;
       }
+      case SelfReferenceKind::Parameter:
+        llvm_unreachable("Should not see this here");
+        
       }
 
       // Record the match.
@@ -2922,9 +2864,9 @@ void ConformanceChecker::resolveTypeWitnesses() {
   // Track when we are checking type witnesses.
   ProtocolConformanceState initialState = Conformance->getState();
   Conformance->setState(ProtocolConformanceState::CheckingTypeWitnesses);
-  defer([&] {
+  defer {
     Conformance->setState(initialState);
-  });
+  };
 
   for (auto member : Proto->getMembers()) {
     auto assocType = dyn_cast<AssociatedTypeDecl>(member);
@@ -3036,7 +2978,7 @@ void ConformanceChecker::resolveTypeWitnesses() {
     if (Adoptee->is<ErrorType>())
       return Type();
 
-    // UnresolvedTypes propagated their unresolveness to any witnesses.
+    // UnresolvedTypes propagated their unresolvedness to any witnesses.
     if (Adoptee->is<UnresolvedType>())
       return Adoptee;
 
@@ -3249,13 +3191,13 @@ void ConformanceChecker::resolveTypeWitnesses() {
 
       // Record this value witness, popping it when we exit the current scope.
       valueWitnesses.push_back({inferredReq.first, witnessReq.Witness});
-      if (witnessReq.Witness->getDeclContext()->isProtocolExtensionContext())
+      if (witnessReq.Witness->getDeclContext()->getAsProtocolExtensionContext())
         ++numValueWitnessesInProtocolExtensions;
-      defer([&]{
-        if (witnessReq.Witness->getDeclContext()->isProtocolExtensionContext())
+      defer {
+        if (witnessReq.Witness->getDeclContext()->getAsProtocolExtensionContext())
           --numValueWitnessesInProtocolExtensions;
         valueWitnesses.pop_back();
-      });
+      };
 
       // Introduce each of the type witnesses into the hash table.
       bool failed = false;
@@ -3450,7 +3392,7 @@ void ConformanceChecker::resolveTypeWitnesses() {
                                 NormalProtocolConformance *conformance) {
           auto proto = conformance->getProtocol();
           tc.diagnose(failedDefaultedAssocType,
-                      diag::default_assocated_type_req_fail,
+                      diag::default_associated_type_req_fail,
                       failedDefaultedWitness,
                       failedDefaultedAssocType->getFullName(),
                       proto->getDeclaredType(),
@@ -3635,7 +3577,7 @@ void ConformanceChecker::resolveSingleWitness(ValueDecl *requirement) {
   // Note that we're resolving this witness.
   assert(ResolvingWitnesses.count(requirement) == 0 && "Currently resolving");
   ResolvingWitnesses.insert(requirement);
-  defer([&]{ ResolvingWitnesses.erase(requirement); });
+  defer { ResolvingWitnesses.erase(requirement); };
 
   // Make sure we've validated the requirement.
   if (!requirement->hasType())
@@ -3732,7 +3674,7 @@ void ConformanceChecker::checkConformance() {
   }
 
   // Ensure that all of the requirements of the protocol have been satisfied.
-  // Note: the odd check for one generic parameter parameter copes with
+  // Note: the odd check for one generic parameter copes with
   // protocols nested within other generic contexts, which is ill-formed.
   SourceLoc noteLoc = Proto->getLoc();
   if (noteLoc.isInvalid())
@@ -3934,8 +3876,14 @@ checkConformsToProtocol(TypeChecker &TC,
 
   // Note that we are checking this conformance now.
   conformance->setState(ProtocolConformanceState::Checking);
-  defer([&] { conformance->setState(ProtocolConformanceState::Complete); });
+  defer { conformance->setState(ProtocolConformanceState::Complete); };
 
+  // If the protocol itself is invalid, there's nothing we can do.
+  if (Proto->isInvalid()) {
+    conformance->setInvalid();
+    return conformance;
+  }
+  
   // If the protocol requires a class, non-classes are a non-starter.
   if (Proto->requiresClass() && !canT->getClassOrBoundGenericClass()) {
     TC.diagnose(ComplainLoc, diag::non_class_cannot_conform_to_class_protocol,
@@ -4184,7 +4132,7 @@ bool TypeChecker::isProtocolExtensionUsable(DeclContext *dc, Type type,
                                             ExtensionDecl *protocolExtension) {
   using namespace constraints;
 
-  assert(protocolExtension->isProtocolExtensionContext() &&
+  assert(protocolExtension->getAsProtocolExtensionContext() &&
          "Only intended for protocol extensions");
 
   resolveExtension(protocolExtension);
@@ -4198,6 +4146,11 @@ bool TypeChecker::isProtocolExtensionUsable(DeclContext *dc, Type type,
   if (!protocolExtension->isConstrainedExtension())
     return true;
 
+  // If the type still has parameters, the constrained extension is considered
+  // unusable.
+  if (type->hasTypeParameter())
+    return false;
+
   // Set up a constraint system where we open the generic parameters of the
   // protocol extension.
   ConstraintSystem cs(*this, dc, None);
@@ -4205,7 +4158,8 @@ bool TypeChecker::isProtocolExtensionUsable(DeclContext *dc, Type type,
   auto genericSig = protocolExtension->getGenericSignature();
   
   cs.openGeneric(protocolExtension, genericSig->getGenericParams(),
-                 genericSig->getRequirements(), false, nullptr,
+                 genericSig->getRequirements(), false,
+                 protocolExtension->getGenericTypeContextDepth(),
                  ConstraintLocatorBuilder(nullptr), replacements);
 
   // Bind the 'Self' type variable to the provided type.

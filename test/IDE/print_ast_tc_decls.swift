@@ -91,7 +91,7 @@ protocol FooProtocol {}
 protocol BarProtocol {}
 protocol BazProtocol { func baz() }
 protocol QuxProtocol {
-  typealias Qux
+  associatedtype Qux
 }
 
 protocol SubFooProtocol : FooProtocol { }
@@ -123,14 +123,10 @@ struct d0100_FooStruct {
   func instanceFunc1(a: Int) {}
 // PASS_COMMON-NEXT: {{^}}  func instanceFunc1(a: Int){{$}}
 
-  func instanceFunc2(a: Int, inout b: Double) {}
-// PASS_COMMON-NEXT: {{^}}  func instanceFunc2(a: Int, inout b: Double){{$}}
+  func instanceFunc2(a: Int, b: inout Double) {}
+// PASS_COMMON-NEXT: {{^}}  func instanceFunc2(a: Int, b: inout Double){{$}}
 
-  func instanceFunc3(a: Int, b: Double) { 
-    var a = a
-    a = 1
-    _ = a
-  }
+  func instanceFunc3(a: Int, let b: Double) { var a = a; a = 1; _ = a }
 // PASS_COMMON-NEXT: {{^}}  func instanceFunc3(a: Int, b: Double){{$}}
 
   func instanceFuncWithDefaultArg1(a: Int = 0) {}
@@ -168,38 +164,14 @@ struct d0100_FooStruct {
       return Double(i)
     }
   }
-// PASS_COMMON-NEXT: {{^}}  subscript (i: Int) -> Double { get }{{$}}
+// PASS_COMMON-NEXT: {{^}}  subscript(i: Int) -> Double { get }{{$}}
 
   subscript(i: Int, j: Int) -> Double {
     get {
       return Double(i + j)
     }
   }
-// PASS_COMMON-NEXT: {{^}}  subscript (i: Int, j: Int) -> Double { get }{{$}}
-
-  func curriedVoidFunc1()() {} // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedVoidFunc1()(){{$}}
-
-  func curriedVoidFunc2()(a: Int) {} // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedVoidFunc2()(a: Int){{$}}
-
-  func curriedVoidFunc3(a: Int)() {} // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedVoidFunc3(a: Int)(){{$}}
-
-  func curriedVoidFunc4(a: Int)(b: Int) {} // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedVoidFunc4(a: Int)(b: Int){{$}}
-
-  func curriedStringFunc1()() -> String { return "" } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedStringFunc1()() -> String{{$}}
-
-  func curriedStringFunc2()(a: Int) -> String { return "" } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedStringFunc2()(a: Int) -> String{{$}}
-
-  func curriedStringFunc3(a: Int)() -> String { return "" } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedStringFunc3(a: Int)() -> String{{$}}
-
-  func curriedStringFunc4(a: Int)(b: Int) -> String { return "" } // expected-warning{{curried function declaration syntax will be removed in a future version of Swift}}
-// PASS_COMMON-NEXT: {{^}}  func curriedStringFunc4(a: Int)(b: Int) -> String{{$}}
+// PASS_COMMON-NEXT: {{^}}  subscript(i: Int, j: Int) -> Double { get }{{$}}
 
   func bodyNameVoidFunc1(a: Int, b x: Float) {}
 // PASS_COMMON-NEXT: {{^}}  func bodyNameVoidFunc1(a: Int, b x: Float){{$}}
@@ -220,7 +192,7 @@ struct d0100_FooStruct {
 
   class NestedClass {}
 // PASS_COMMON-NEXT: {{^}}  class NestedClass {{{$}}
-// PASS_COMMON-NEXT: {{^}}    @objc deinit {{$}}
+// PASS_COMMON-NEXT: {{^}}    @objc deinit{{$}}
 // PASS_COMMON-NEXT: {{^}}    init(){{$}}
 // PASS_COMMON-NEXT: {{^}}  }{{$}}
 
@@ -228,7 +200,7 @@ struct d0100_FooStruct {
 // PASS_COMMON-NEXT: {{^}}  enum NestedEnum {{{$}}
 // PASS_COMMON-NEXT: {{^}}  }{{$}}
 
-  // Can not declare a nested protocol.
+  // Cannot declare a nested protocol.
   // protocol NestedProtocol {}
 
   typealias NestedTypealias = Int
@@ -296,7 +268,7 @@ extension d0100_FooStruct {
 
   class ExtNestedClass {}
 // PASS_COMMON-NEXT: {{^}}  class ExtNestedClass {{{$}}
-// PASS_COMMON-NEXT: {{^}}    @objc deinit {{$}}
+// PASS_COMMON-NEXT: {{^}}    @objc deinit{{$}}
 // PASS_COMMON-NEXT: {{^}}    init(){{$}}
 // PASS_COMMON-NEXT: {{^}}  }{{$}}
 
@@ -352,8 +324,8 @@ struct d0110_ReadWriteProperties {
     }
     set {}
   }
-// PASS_RW_PROP_GET_SET-NEXT:    {{^}}  subscript (i: Int) -> Int { get set }{{$}}
-// PASS_RW_PROP_NO_GET_SET-NEXT: {{^}}  subscript (i: Int) -> Int{{$}}
+// PASS_RW_PROP_GET_SET-NEXT:    {{^}}  subscript(i: Int) -> Int { get set }{{$}}
+// PASS_RW_PROP_NO_GET_SET-NEXT: {{^}}  subscript(i: Int) -> Int{{$}}
 
   static var computedStaticProp1: Int {
     get {
@@ -397,8 +369,8 @@ struct d0110_ReadWriteProperties {
     }
     nonmutating set {}
   }
-// PASS_RW_PROP_GET_SET-NEXT:    {{^}}  subscript (i: Float) -> Int { get nonmutating set }{{$}}
-// PASS_RW_PROP_NO_GET_SET-NEXT: {{^}}  subscript (i: Float) -> Int { get nonmutating set }{{$}}
+// PASS_RW_PROP_GET_SET-NEXT:    {{^}}  subscript(i: Float) -> Int { get nonmutating set }{{$}}
+// PASS_RW_PROP_NO_GET_SET-NEXT: {{^}}  subscript(i: Float) -> Int { get nonmutating set }{{$}}
 }
 // PASS_RW_PROP_GET_SET-NEXT:    {{^}}  init(){{$}}
 // PASS_RW_PROP_GET_SET-NEXT:    {{^}}}{{$}}
@@ -449,7 +421,7 @@ class d0120_TestClassBase {
   subscript(i: Int) -> Int {
     return 0
   }
-// PASS_COMMON-NEXT: {{^}}  subscript (i: Int) -> Int { get }{{$}}
+// PASS_COMMON-NEXT: {{^}}  subscript(i: Int) -> Int { get }{{$}}
 }
 
 class d0121_TestClassDerived : d0120_TestClassBase {
@@ -464,14 +436,14 @@ class d0121_TestClassDerived : d0120_TestClassBase {
   override final subscript(i: Int) -> Int {
     return 0
   }
-// PASS_COMMON-NEXT: {{^}}  override final subscript (i: Int) -> Int { get }{{$}}
+// PASS_COMMON-NEXT: {{^}}  override final subscript(i: Int) -> Int { get }{{$}}
 }
 
 protocol d0130_TestProtocol {
 // PASS_COMMON-LABEL: {{^}}protocol d0130_TestProtocol {{{$}}
 
-  typealias NestedTypealias
-// PASS_COMMON-NEXT: {{^}}  typealias NestedTypealias{{$}}
+  associatedtype NestedTypealias
+// PASS_COMMON-NEXT: {{^}}  associatedtype NestedTypealias{{$}}
 
   var property1: Int { get }
 // PASS_COMMON-NEXT: {{^}}  var property1: Int { get }{{$}}
@@ -613,7 +585,7 @@ struct d0200_EscapedIdentifiers {
 
   class `class` {}
 // PASS_COMMON-NEXT: {{^}}  class `class` {{{$}}
-// PASS_COMMON-NEXT: {{^}}    @objc deinit {{$}}
+// PASS_COMMON-NEXT: {{^}}    @objc deinit{{$}}
 // PASS_COMMON-NEXT: {{^}}    init(){{$}}
 // PASS_COMMON-NEXT: {{^}}  }{{$}}
 
@@ -624,13 +596,13 @@ struct d0200_EscapedIdentifiers {
   class `extension` : `class` {}
 // PASS_ONE_LINE_TYPE-DAG: {{^}}  class `extension` : d0200_EscapedIdentifiers.`class` {{{$}}
 // PASS_ONE_LINE_TYPEREPR-DAG: {{^}}  class `extension` : `class` {{{$}}
-// PASS_COMMON: {{^}}    @objc deinit {{$}}
+// PASS_COMMON: {{^}}    @objc deinit{{$}}
 // PASS_COMMON-NEXT: {{^}}    {{(override )?}}init(){{$}}
 // PASS_COMMON-NEXT: {{^}}  }{{$}}
 
   func `func`<`let`: `protocol`, `where` where `where` : `protocol`>(
-      `class`: Int, `struct`: `protocol`, `foo`: `let`, `bar`: `where`) {}
-// PASS_COMMON-NEXT: {{^}}  func `func`<`let` : `protocol`, `where` where `where` : `protocol`>(`class`: Int, `struct`: `protocol`, foo: `let`, bar: `where`){{$}}
+      class: Int, struct: `protocol`, foo: `let`, bar: `where`) {}
+// PASS_COMMON-NEXT: {{^}}  func `func`<`let` : `protocol`, `where` where `where` : `protocol`>(class: Int, struct: `protocol`, foo: `let`, bar: `where`){{$}}
 
   var `var`: `struct` = `struct`()
 // PASS_COMMON-NEXT: {{^}}  var `var`: {{(d0200_EscapedIdentifiers.)?}}`struct`{{$}}
@@ -644,8 +616,8 @@ struct d0200_EscapedIdentifiers {
   }
 // PASS_COMMON-NEXT: {{^}}  var accessors1: Int{{( { get set })?}}{{$}}
 
-  static func `static`(`protocol`: Int) {}
-// PASS_COMMON-NEXT: {{^}}  static func `static`(`protocol`: Int){{$}}
+  static func `static`(protocol: Int) {}
+// PASS_COMMON-NEXT: {{^}}  static func `static`(protocol: Int){{$}}
 
 // PASS_COMMON-NEXT: {{^}}  init(`var`: {{(d0200_EscapedIdentifiers.)?}}`struct`, tupleType: (`var`: Int, `let`: {{(d0200_EscapedIdentifiers.)?}}`struct`)){{$}}
 // PASS_COMMON-NEXT: {{^}}}{{$}}
@@ -879,14 +851,14 @@ typealias SimpleTypealias1 = FooProtocol
 // Associated types.
 
 protocol AssociatedType1 {
-  typealias AssociatedTypeDecl1 = Int
-// PASS_ONE_LINE-DAG: {{^}}  typealias AssociatedTypeDecl1 = Int{{$}}
+  associatedtype AssociatedTypeDecl1 = Int
+// PASS_ONE_LINE-DAG: {{^}}  associatedtype AssociatedTypeDecl1 = Int{{$}}
 
-  typealias AssociatedTypeDecl2 : FooProtocol
-// PASS_ONE_LINE-DAG: {{^}}  typealias AssociatedTypeDecl2 : FooProtocol{{$}}
+  associatedtype AssociatedTypeDecl2 : FooProtocol
+// PASS_ONE_LINE-DAG: {{^}}  associatedtype AssociatedTypeDecl2 : FooProtocol{{$}}
 
-  typealias AssociatedTypeDecl3 : FooProtocol, BarProtocol
-// PASS_ONE_LINE_TYPEREPR-DAG: {{^}}  typealias AssociatedTypeDecl3 : FooProtocol, BarProtocol{{$}}
+  associatedtype AssociatedTypeDecl3 : FooProtocol, BarProtocol
+// PASS_ONE_LINE_TYPEREPR-DAG: {{^}}  associatedtype AssociatedTypeDecl3 : FooProtocol, BarProtocol{{$}}
 }
 
 //===---
@@ -954,9 +926,15 @@ class d0700_InClassSubscript1 {
     }
   }
   subscript(index i: Float) -> Int { return 42 }
-// PASS_COMMON: {{^}}  subscript (i: Int) -> Int { get }{{$}}
-// PASS_COMMON: {{^}}  subscript (index i: Float) -> Int { get }{{$}}
+  class `class` {}
+  subscript(x: Float) -> `class` { return `class`() }
+// PASS_COMMON: {{^}}  subscript(i: Int) -> Int { get }{{$}}
+// PASS_COMMON: {{^}}  subscript(index i: Float) -> Int { get }{{$}}
+// PASS_COMMON: {{^}}  subscript(x: Float) -> {{.*}} { get }{{$}}
 // PASS_COMMON-NOT: subscript
+
+// PASS_ONE_LINE_TYPE: {{^}}  subscript(x: Float) -> d0700_InClassSubscript1.`class` { get }{{$}}
+// PASS_ONE_LINE_TYPEREPR: {{^}}  subscript(x: Float) -> `class` { get }{{$}}
 }
 // PASS_COMMON: {{^}}}{{$}}
 
@@ -1009,7 +987,7 @@ class d1100_ExplicitDestructor1 {
 // PASS_COMMON-LABEL: d1100_ExplicitDestructor1
 
   deinit {}
-// PASS_COMMON: {{^}}  @objc deinit {{$}}
+// PASS_COMMON: {{^}}  @objc deinit{{$}}
 }
 
 //===---
@@ -1116,14 +1094,14 @@ protocol d2600_ProtocolWithOperator1 {
 
 struct d2601_TestAssignment {}
 infix operator %%% { }
-func %%%(inout lhs: d2601_TestAssignment, rhs: d2601_TestAssignment) -> Int {
+func %%%(lhs: inout d2601_TestAssignment, rhs: d2601_TestAssignment) -> Int {
   return 0
 }
 // PASS_2500-LABEL: {{^}}infix operator %%% {
 // PASS_2500-NOT: associativity
 // PASS_2500-NOT: precedence
 // PASS_2500-NOT: assignment
-// PASS_2500: {{^}}func %%%(inout lhs: d2601_TestAssignment, rhs: d2601_TestAssignment) -> Int{{$}}
+// PASS_2500: {{^}}func %%%(lhs: inout d2601_TestAssignment, rhs: d2601_TestAssignment) -> Int{{$}}
 
 infix operator %%< {
 // PASS_2500-LABEL: {{^}}infix operator %%< {{{$}}
@@ -1157,12 +1135,12 @@ infix operator %%<> {
 //===---
 
 protocol d2700_ProtocolWithAssociatedType1 {
-  typealias TA1
+  associatedtype TA1
   func returnsTA1() -> TA1
 }
 
 // PASS_COMMON: {{^}}protocol d2700_ProtocolWithAssociatedType1 {{{$}}
-// PASS_COMMON-NEXT: {{^}}  typealias TA1{{$}}
+// PASS_COMMON-NEXT: {{^}}  associatedtype TA1{{$}}
 // PASS_COMMON-NEXT: {{^}}  func returnsTA1() -> Self.TA1{{$}}
 // PASS_COMMON-NEXT: {{^}}}{{$}}
 
@@ -1336,7 +1314,7 @@ public func ParamAttrs3(@noescape a : () -> ()) {
 // Protocol extensions
 
 protocol ProtocolToExtend {
-  typealias Assoc
+  associatedtype Assoc
 }
 
 extension ProtocolToExtend where Self.Assoc == Int {}
